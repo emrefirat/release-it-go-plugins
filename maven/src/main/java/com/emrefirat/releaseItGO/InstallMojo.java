@@ -1,4 +1,4 @@
-package com.emrefirat.releaseIt;
+package com.emrefirat.releaseItGO;
 
 import org.apache.maven.plugin.AbstractMojo;
 import org.apache.maven.plugin.MojoExecutionException;
@@ -21,7 +21,7 @@ import java.io.InputStreamReader;
  * <pre>{@code
  * <plugin>
  *     <groupId>com.emrefirat</groupId>
- *     <artifactId>release-it-maven-plugin</artifactId>
+ *     <artifactId>release-it-go-maven-plugin</artifactId>
  *     <version>1.0.0</version>
  *     <configuration>
  *         <version>0.1.0</version>

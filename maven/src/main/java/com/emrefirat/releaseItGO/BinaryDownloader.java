@@ -1,4 +1,4 @@
-package com.emrefirat.releaseIt;
+package com.emrefirat.releaseItGO;
 
 import org.apache.maven.plugin.logging.Log;
 
