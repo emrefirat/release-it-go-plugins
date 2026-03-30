@@ -50,12 +50,6 @@ public class InstallMojo extends AbstractMojo {
     private boolean skip;
 
     /**
-     * Directory where the binary will be installed.
-     */
-    @Parameter(property = "releaseItGo.binDir", defaultValue = "${project.basedir}/.release-it-go")
-    private String binDir;
-
-    /**
      * GitHub token for private repo access. Reads from GITHUB_TOKEN env var if not set.
      */
     @Parameter(property = "releaseItGo.token")
@@ -71,15 +65,15 @@ public class InstallMojo extends AbstractMojo {
             return;
         }
 
-        File binDirectory = new File(binDir);
-        File binaryFile = new File(binDirectory, PlatformDetector.binaryName());
+        File baseDir = project.getBasedir();
+        File binaryFile = new File(baseDir, PlatformDetector.binaryName());
 
         // Download binary if it does not exist
         if (!binaryFile.exists()) {
             getLog().info("Binary not found, downloading release-it-go v" + version + "...");
             try {
                 String resolvedToken = resolveToken();
-                BinaryDownloader downloader = new BinaryDownloader(getLog(), version, binDirectory, resolvedToken);
+                BinaryDownloader downloader = new BinaryDownloader(getLog(), version, baseDir, resolvedToken);
                 binaryFile = downloader.download();
             } catch (IllegalStateException e) {
                 throw new MojoFailureException("Unsupported platform: " + e.getMessage(), e);
