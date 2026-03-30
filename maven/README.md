@@ -1,4 +1,4 @@
-# release-it-maven-plugin
+# release-it-go-maven-plugin
 
 Maven plugin that automatically downloads the [release-it-go](https://github.com/emrefirat/release-it-GO) binary from GitHub Releases and runs `hooks install` during the build.
 
@@ -9,7 +9,7 @@ Add the plugin to your `pom.xml`:
 ```xml
 <plugin>
     <groupId>com.emrefirat</groupId>
-    <artifactId>release-it-maven-plugin</artifactId>
+    <artifactId>release-it-go-maven-plugin</artifactId>
     <version>1.0.0</version>
     <configuration>
         <version>0.1.0</version>
