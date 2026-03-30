@@ -1,4 +1,4 @@
-package com.emrefirat.releaseIt;
+package com.emrefirat.releaseItGO;
 
 import java.util.Locale;
 
