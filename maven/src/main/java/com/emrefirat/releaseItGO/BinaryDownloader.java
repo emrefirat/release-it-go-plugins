@@ -28,6 +28,7 @@ public class BinaryDownloader {
     private final Log logger;
     private final String version;
     private final File binDir;
+    private final String token;
 
     /**
      * Creates a new BinaryDownloader.
@@ -35,11 +36,13 @@ public class BinaryDownloader {
      * @param logger  Maven logger for output
      * @param version the release-it-go version to download (e.g. "0.1.0")
      * @param binDir  the directory where the binary will be stored
+     * @param token   GitHub token for private repo access (nullable)
      */
-    public BinaryDownloader(Log logger, String version, File binDir) {
+    public BinaryDownloader(Log logger, String version, File binDir, String token) {
         this.logger = logger;
         this.version = version;
         this.binDir = binDir;
+        this.token = token;
     }
 
     /**
@@ -109,6 +112,9 @@ public class BinaryDownloader {
         connection.setConnectTimeout(CONNECT_TIMEOUT_MS);
         connection.setReadTimeout(READ_TIMEOUT_MS);
         connection.setRequestProperty("Accept", "application/octet-stream");
+        if (token != null && !token.isEmpty()) {
+            connection.setRequestProperty("Authorization", "Bearer " + token);
+        }
 
         try {
             int responseCode = connection.getResponseCode();

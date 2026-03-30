@@ -29,6 +29,7 @@ Add the plugin to your `pom.xml`:
 | `version` | `releaseItGo.version` | (required) | The release-it-go version to download |
 | `skip` | `releaseItGo.skip` | `false` | Skip plugin execution |
 | `binDir` | `releaseItGo.binDir` | `${project.basedir}/.release-it-go` | Directory where the binary is installed |
+| `token` | `releaseItGo.token` | `$GITHUB_TOKEN` | GitHub token for private repo access |
 
 ## How It Works
 
@@ -41,6 +42,15 @@ Add the plugin to your `pom.xml`:
 
 ```bash
 mvn install -DreleaseItGo.skip=true
+```
+
+## Private Repositories
+
+For private repos, set `GITHUB_TOKEN` environment variable or configure token in pom.xml:
+
+```bash
+export GITHUB_TOKEN=ghp_your_token_here
+mvn initialize
 ```
 
 ## Requirements
