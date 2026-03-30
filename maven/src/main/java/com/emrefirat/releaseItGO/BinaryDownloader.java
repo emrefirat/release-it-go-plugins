@@ -19,7 +19,7 @@ import java.net.URL;
 public class BinaryDownloader {
 
     private static final String DOWNLOAD_URL_TEMPLATE =
-            "https://github.com/emrefirat/release-it-GO/releases/download/v%s/release-it-go_%s_%s.tar.gz";
+            "https://github.com/emrefirat/release-it-GO/releases/download/v%s/release-it-go_%s_%s_%s";
 
     private static final int CONNECT_TIMEOUT_MS = 30_000;
     private static final int READ_TIMEOUT_MS = 120_000;
@@ -68,11 +68,12 @@ public class BinaryDownloader {
             throw new IOException("Failed to create directory: " + binDir.getAbsolutePath());
         }
 
-        String downloadUrl = String.format(DOWNLOAD_URL_TEMPLATE, version, os, arch);
+        String ext = "windows".equals(os) ? ".zip" : ".tar.gz";
+        String downloadUrl = String.format(DOWNLOAD_URL_TEMPLATE + ext, version, version, os, arch);
         logger.info("Downloading release-it-go v" + version + " for " + os + "/" + arch);
         logger.info("URL: " + downloadUrl);
 
-        File archiveFile = new File(binDir, "release-it-go.tar.gz");
+        File archiveFile = new File(binDir, "release-it-go" + ext);
         downloadFile(downloadUrl, archiveFile);
 
         logger.info("Extracting archive...");
@@ -154,13 +155,14 @@ public class BinaryDownloader {
     }
 
     /**
-     * Extracts a .tar.gz archive to the given target directory.
+     * Extracts only the binary from a .tar.gz archive to the given target directory.
      * Uses the system tar command which is available on all supported platforms
      * (Unix natively, Windows 10+ built-in).
      */
     private void extractTarGz(File archive, File targetDir) throws IOException {
+        String binaryName = PlatformDetector.binaryName();
         ProcessBuilder pb = new ProcessBuilder(
-                "tar", "-xzf", archive.getAbsolutePath(), "-C", targetDir.getAbsolutePath()
+                "tar", "-xzf", archive.getAbsolutePath(), "-C", targetDir.getAbsolutePath(), binaryName
         );
         pb.redirectErrorStream(true);
 
