@@ -66,6 +66,19 @@ public class InstallMojo extends AbstractMojo {
         }
 
         File baseDir = project.getBasedir();
+
+        // Check for config file
+        if (!hasConfigFile(baseDir)) {
+            throw new MojoFailureException(
+                    "No .release-it-go.yaml (or .json/.toml) config file found in " + baseDir.getAbsolutePath() + "\n"
+                    + "Create one with: ./release-it-go init\n"
+                    + "Or manually create .release-it-go.yaml with your hooks configuration."
+            );
+        }
+
+        // Ensure binary is in .gitignore
+        ensureGitignore(baseDir);
+
         File binaryFile = new File(baseDir, PlatformDetector.binaryName());
 
         // Download binary if it does not exist
@@ -123,6 +136,50 @@ public class InstallMojo extends AbstractMojo {
         } catch (InterruptedException e) {
             Thread.currentThread().interrupt();
             throw new MojoExecutionException("Execution interrupted", e);
+        }
+    }
+
+    /**
+     * Checks if a release-it-go config file exists in the project directory.
+     */
+    private boolean hasConfigFile(File baseDir) {
+        String[] configFiles = {
+                ".release-it-go.yaml", ".release-it-go.yml", ".release-it-go.json", ".release-it-go.toml",
+                ".release-it.yaml", ".release-it.yml", ".release-it.json", ".release-it.toml"
+        };
+        for (String name : configFiles) {
+            if (new File(baseDir, name).exists()) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    /**
+     * Ensures the binary name is listed in .gitignore.
+     */
+    private void ensureGitignore(File baseDir) {
+        String binaryName = PlatformDetector.binaryName();
+        File gitignore = new File(baseDir, ".gitignore");
+
+        try {
+            if (gitignore.exists()) {
+                String content = new String(java.nio.file.Files.readAllBytes(gitignore.toPath()));
+                if (content.contains(binaryName)) {
+                    return; // Already in .gitignore
+                }
+                // Append to existing .gitignore
+                java.nio.file.Files.write(gitignore.toPath(),
+                        ("\n# release-it-go binary\n" + binaryName + "\n").getBytes(),
+                        java.nio.file.StandardOpenOption.APPEND);
+            } else {
+                // Create .gitignore
+                java.nio.file.Files.write(gitignore.toPath(),
+                        ("# release-it-go binary\n" + binaryName + "\n").getBytes());
+            }
+            getLog().info("Added " + binaryName + " to .gitignore");
+        } catch (IOException e) {
+            getLog().warn("Could not update .gitignore: " + e.getMessage());
         }
     }
 
