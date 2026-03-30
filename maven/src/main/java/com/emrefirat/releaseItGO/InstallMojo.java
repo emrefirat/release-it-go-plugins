@@ -55,6 +55,12 @@ public class InstallMojo extends AbstractMojo {
     @Parameter(property = "releaseItGo.binDir", defaultValue = "${project.basedir}/.release-it-go")
     private String binDir;
 
+    /**
+     * GitHub token for private repo access. Reads from GITHUB_TOKEN env var if not set.
+     */
+    @Parameter(property = "releaseItGo.token")
+    private String token;
+
     @Parameter(defaultValue = "${project}", readonly = true)
     private MavenProject project;
 
@@ -72,7 +78,8 @@ public class InstallMojo extends AbstractMojo {
         if (!binaryFile.exists()) {
             getLog().info("Binary not found, downloading release-it-go v" + version + "...");
             try {
-                BinaryDownloader downloader = new BinaryDownloader(getLog(), version, binDirectory);
+                String resolvedToken = resolveToken();
+                BinaryDownloader downloader = new BinaryDownloader(getLog(), version, binDirectory, resolvedToken);
                 binaryFile = downloader.download();
             } catch (IllegalStateException e) {
                 throw new MojoFailureException("Unsupported platform: " + e.getMessage(), e);
@@ -123,5 +130,21 @@ public class InstallMojo extends AbstractMojo {
             Thread.currentThread().interrupt();
             throw new MojoExecutionException("Execution interrupted", e);
         }
+    }
+
+    /**
+     * Resolves the GitHub token from config or GITHUB_TOKEN environment variable.
+     */
+    private String resolveToken() {
+        if (token != null && !token.isEmpty()) {
+            getLog().debug("Using token from plugin configuration");
+            return token;
+        }
+        String envToken = System.getenv("GITHUB_TOKEN");
+        if (envToken != null && !envToken.isEmpty()) {
+            getLog().debug("Using token from GITHUB_TOKEN environment variable");
+            return envToken;
+        }
+        return null;
     }
 }
