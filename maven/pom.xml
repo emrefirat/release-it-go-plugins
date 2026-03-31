@@ -6,7 +6,7 @@
 
     <groupId>com.emrefirat</groupId>
     <artifactId>release-it-go-maven-plugin</artifactId>
-    <version>1.0.0-SNAPSHOT</version>
+    <version>1.0.0</version>
     <packaging>maven-plugin</packaging>
 
     <name>release-it-go-maven-plugin</name>
@@ -52,6 +52,14 @@
             <scope>test</scope>
         </dependency>
     </dependencies>
+
+    <distributionManagement>
+        <repository>
+            <id>github</id>
+            <name>GitHub Packages</name>
+            <url>https://maven.pkg.github.com/emrefirat/release-it-go-plugins</url>
+        </repository>
+    </distributionManagement>
 
     <build>
         <plugins>
