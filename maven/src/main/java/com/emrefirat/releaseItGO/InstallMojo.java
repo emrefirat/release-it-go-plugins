@@ -83,9 +83,20 @@ public class InstallMojo extends AbstractMojo {
 
         File binaryFile = new File(baseDir, PlatformDetector.binaryName());
 
-        // Download binary if it does not exist
-        if (!binaryFile.exists()) {
-            getLog().info("Binary not found, downloading release-it-go v" + version + "...");
+        // Download binary if missing or version mismatch
+        boolean needsDownload = !binaryFile.exists();
+        if (!needsDownload) {
+            String currentVersion = getInstalledVersion(binaryFile);
+            if (currentVersion != null && !currentVersion.contains(version)) {
+                getLog().info("Version mismatch: installed=" + currentVersion + ", required=" + version);
+                needsDownload = true;
+            } else {
+                getLog().info("Binary up to date: " + binaryFile.getAbsolutePath());
+            }
+        }
+
+        if (needsDownload) {
+            getLog().info("Downloading release-it-go v" + version + "...");
             try {
                 String resolvedToken = resolveToken();
                 BinaryDownloader downloader = new BinaryDownloader(getLog(), version, baseDir, resolvedToken);
@@ -95,8 +106,6 @@ public class InstallMojo extends AbstractMojo {
             } catch (IOException e) {
                 throw new MojoExecutionException("Failed to download release-it-go binary: " + e.getMessage(), e);
             }
-        } else {
-            getLog().info("Binary already exists: " + binaryFile.getAbsolutePath());
         }
 
         // Run hooks install
@@ -138,6 +147,26 @@ public class InstallMojo extends AbstractMojo {
         } catch (InterruptedException e) {
             Thread.currentThread().interrupt();
             throw new MojoExecutionException("Execution interrupted", e);
+        }
+    }
+
+    /**
+     * Gets the version of the installed binary by running "release-it-go version".
+     * Returns null if the binary cannot be executed.
+     */
+    private String getInstalledVersion(File binary) {
+        try {
+            ProcessBuilder pb = new ProcessBuilder(binary.getAbsolutePath(), "version");
+            pb.redirectErrorStream(true);
+            Process process = pb.start();
+            try (BufferedReader reader = new BufferedReader(new InputStreamReader(process.getInputStream()))) {
+                String line = reader.readLine();
+                process.waitFor();
+                return line;
+            }
+        } catch (Exception e) {
+            getLog().debug("Could not determine installed version: " + e.getMessage());
+            return null;
         }
     }
 
