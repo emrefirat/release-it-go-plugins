@@ -38,9 +38,11 @@ import java.io.InputStreamReader;
 public class InstallMojo extends AbstractMojo {
 
     /**
-     * The release-it-go version to download (e.g. "0.1.0").
+     * The release-it-go version to download.
+     * Defaults to the version bundled with this plugin release.
+     * Override only if you need a specific version.
      */
-    @Parameter(property = "releaseItGo.version", required = true)
+    @Parameter(property = "releaseItGo.version", defaultValue = "0.1.3")
     private String version;
 
     /**
