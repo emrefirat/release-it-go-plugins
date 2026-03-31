@@ -59,9 +59,9 @@ public class BinaryDownloader {
 
         File binaryFile = new File(binDir, binaryName);
 
-        if (binaryFile.exists() && binaryFile.canExecute()) {
-            logger.info("Binary already exists: " + binaryFile.getAbsolutePath());
-            return binaryFile;
+        // Remove old binary if exists (caller handles version check)
+        if (binaryFile.exists()) {
+            binaryFile.delete();
         }
 
         if (!binDir.exists() && !binDir.mkdirs()) {
