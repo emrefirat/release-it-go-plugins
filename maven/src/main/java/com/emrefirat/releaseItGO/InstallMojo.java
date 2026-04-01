@@ -25,7 +25,7 @@ import java.util.concurrent.TimeUnit;
  * <plugin>
  *     <groupId>com.emrefirat</groupId>
  *     <artifactId>release-it-go-maven-plugin</artifactId>
- *     <version>1.1.1</version>
+ *     <version>1.1.2</version>
  *     <configuration>
  *         <version>0.1.0</version>
  *     </configuration>
@@ -174,7 +174,7 @@ public class InstallMojo extends AbstractMojo {
         try {
             process = pb.start();
 
-            try (BufferedReader reader = new BufferedReader(new InputStreamReader(process.getInputStream()))) {
+            try (BufferedReader reader = new BufferedReader(new InputStreamReader(process.getInputStream(), StandardCharsets.UTF_8))) {
                 String line;
                 while ((line = reader.readLine()) != null) {
                     getLog().info("[release-it-go] " + line);
@@ -219,7 +219,7 @@ public class InstallMojo extends AbstractMojo {
             ProcessBuilder pb = new ProcessBuilder(binary.getAbsolutePath(), "version");
             pb.redirectErrorStream(true);
             process = pb.start();
-            try (BufferedReader reader = new BufferedReader(new InputStreamReader(process.getInputStream()))) {
+            try (BufferedReader reader = new BufferedReader(new InputStreamReader(process.getInputStream(), StandardCharsets.UTF_8))) {
                 String line = reader.readLine();
                 if (!process.waitFor(VERSION_CHECK_TIMEOUT_SECONDS, TimeUnit.SECONDS)) {
                     getLog().warn("Version check timed out after " + VERSION_CHECK_TIMEOUT_SECONDS + " seconds");
