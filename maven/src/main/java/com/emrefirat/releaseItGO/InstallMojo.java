@@ -12,6 +12,10 @@ import java.io.BufferedReader;
 import java.io.File;
 import java.io.IOException;
 import java.io.InputStreamReader;
+import java.nio.charset.StandardCharsets;
+import java.nio.file.Files;
+import java.nio.file.StandardOpenOption;
+import java.util.concurrent.TimeUnit;
 
 /**
  * Downloads the release-it-go binary from GitHub Releases and runs {@code hooks install}
@@ -70,7 +74,7 @@ public class InstallMojo extends AbstractMojo {
         File baseDir = project.getBasedir();
 
         // Check for config file
-        if (!hasConfigFile(baseDir)) {
+        if (!PluginUtils.hasConfigFile(baseDir)) {
             throw new MojoFailureException(
                     "No .release-it-go.yaml (or .json/.toml) config file found in " + baseDir.getAbsolutePath() + "\n"
                     + "Create one with: ./release-it-go init\n"
@@ -87,7 +91,10 @@ public class InstallMojo extends AbstractMojo {
         boolean needsDownload = !binaryFile.exists();
         if (!needsDownload) {
             String currentVersion = getInstalledVersion(binaryFile);
-            if (currentVersion != null && !normalizeVersion(currentVersion).equals(normalizeVersion(version))) {
+            if (currentVersion == null) {
+                getLog().warn("Could not determine installed binary version, re-downloading to be safe");
+                needsDownload = true;
+            } else if (!PluginUtils.normalizeVersion(currentVersion).equals(PluginUtils.normalizeVersion(version))) {
                 getLog().info("Version mismatch: installed=" + currentVersion + ", required=" + version);
                 needsDownload = true;
             } else {
@@ -113,6 +120,9 @@ public class InstallMojo extends AbstractMojo {
         runHooksInstall(binaryFile);
     }
 
+    private static final long HOOKS_INSTALL_TIMEOUT_SECONDS = 60;
+    private static final long VERSION_CHECK_TIMEOUT_SECONDS = 10;
+
     /**
      * Executes the release-it-go binary with "hooks install" arguments.
      * Captures and logs both stdout and stderr. Throws on non-zero exit code.
@@ -124,8 +134,9 @@ public class InstallMojo extends AbstractMojo {
         pb.directory(project.getBasedir());
         pb.redirectErrorStream(true);
 
+        Process process = null;
         try {
-            Process process = pb.start();
+            process = pb.start();
 
             try (BufferedReader reader = new BufferedReader(new InputStreamReader(process.getInputStream()))) {
                 String line;
@@ -134,7 +145,15 @@ public class InstallMojo extends AbstractMojo {
                 }
             }
 
-            int exitCode = process.waitFor();
+            boolean finished = process.waitFor(HOOKS_INSTALL_TIMEOUT_SECONDS, TimeUnit.SECONDS);
+            if (!finished) {
+                process.destroyForcibly();
+                throw new MojoExecutionException(
+                        "release-it-go hooks install timed out after " + HOOKS_INSTALL_TIMEOUT_SECONDS + " seconds"
+                );
+            }
+
+            int exitCode = process.exitValue();
             if (exitCode != 0) {
                 throw new MojoExecutionException(
                         "release-it-go hooks install failed with exit code " + exitCode
@@ -147,6 +166,10 @@ public class InstallMojo extends AbstractMojo {
         } catch (InterruptedException e) {
             Thread.currentThread().interrupt();
             throw new MojoExecutionException("Execution interrupted", e);
+        } finally {
+            if (process != null) {
+                process.destroyForcibly();
+            }
         }
     }
 
@@ -162,7 +185,10 @@ public class InstallMojo extends AbstractMojo {
             process = pb.start();
             try (BufferedReader reader = new BufferedReader(new InputStreamReader(process.getInputStream()))) {
                 String line = reader.readLine();
-                process.waitFor();
+                if (!process.waitFor(VERSION_CHECK_TIMEOUT_SECONDS, TimeUnit.SECONDS)) {
+                    getLog().warn("Version check timed out after " + VERSION_CHECK_TIMEOUT_SECONDS + " seconds");
+                    return null;
+                }
                 return line;
             }
         } catch (Exception e) {
@@ -176,67 +202,32 @@ public class InstallMojo extends AbstractMojo {
     }
 
     /**
-     * Extracts a clean version string by stripping any "v" prefix and non-version text.
-     * For example: "release-it-go version 0.1.3" → "0.1.3", "v0.1.3" → "0.1.3"
-     */
-    static String normalizeVersion(String raw) {
-        if (raw == null) {
-            return "";
-        }
-        String trimmed = raw.trim();
-        // Handle output like "release-it-go version 0.1.3"
-        int lastSpace = trimmed.lastIndexOf(' ');
-        if (lastSpace >= 0) {
-            trimmed = trimmed.substring(lastSpace + 1);
-        }
-        // Strip leading "v"
-        if (trimmed.startsWith("v")) {
-            trimmed = trimmed.substring(1);
-        }
-        return trimmed;
-    }
-
-    /**
-     * Checks if a release-it-go config file exists in the project directory.
-     */
-    static boolean hasConfigFile(File baseDir) {
-        String[] configFiles = {
-                ".release-it-go.yaml", ".release-it-go.yml", ".release-it-go.json", ".release-it-go.toml",
-                ".release-it.yaml", ".release-it.yml", ".release-it.json", ".release-it.toml"
-        };
-        for (String name : configFiles) {
-            if (new File(baseDir, name).exists()) {
-                return true;
-            }
-        }
-        return false;
-    }
-
-    /**
      * Ensures the binary name is listed in .gitignore.
      */
     private void ensureGitignore(File baseDir) {
         String binaryName = PlatformDetector.binaryName();
         File gitignore = new File(baseDir, ".gitignore");
 
-        try {
-            if (gitignore.exists()) {
-                String content = new String(java.nio.file.Files.readAllBytes(gitignore.toPath()));
-                if (content.contains(binaryName)) {
-                    return; // Already in .gitignore
+        synchronized (InstallMojo.class) {
+            try {
+                if (gitignore.exists()) {
+                    String content = new String(Files.readAllBytes(gitignore.toPath()), StandardCharsets.UTF_8);
+                    if (content.contains(binaryName)) {
+                        return; // Already in .gitignore
+                    }
+                    // Append to existing .gitignore
+                    Files.write(gitignore.toPath(),
+                            ("\n# release-it-go binary\n" + binaryName + "\n").getBytes(StandardCharsets.UTF_8),
+                            StandardOpenOption.APPEND);
+                } else {
+                    // Create .gitignore
+                    Files.write(gitignore.toPath(),
+                            ("# release-it-go binary\n" + binaryName + "\n").getBytes(StandardCharsets.UTF_8));
                 }
-                // Append to existing .gitignore
-                java.nio.file.Files.write(gitignore.toPath(),
-                        ("\n# release-it-go binary\n" + binaryName + "\n").getBytes(),
-                        java.nio.file.StandardOpenOption.APPEND);
-            } else {
-                // Create .gitignore
-                java.nio.file.Files.write(gitignore.toPath(),
-                        ("# release-it-go binary\n" + binaryName + "\n").getBytes());
+                getLog().info("Added " + binaryName + " to .gitignore");
+            } catch (IOException e) {
+                getLog().warn("Could not update .gitignore: " + e.getMessage());
             }
-            getLog().info("Added " + binaryName + " to .gitignore");
-        } catch (IOException e) {
-            getLog().warn("Could not update .gitignore: " + e.getMessage());
         }
     }
 
