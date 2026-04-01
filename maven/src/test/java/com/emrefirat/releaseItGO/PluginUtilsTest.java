@@ -132,6 +132,21 @@ class PluginUtilsTest {
         assertFalse(PluginUtils.hasConfigFile(new File("/nonexistent/path")));
     }
 
+    // --- getDefaultVersion tests ---
+
+    @Test
+    void getDefaultVersion_returnsNonEmpty() {
+        String version = PluginUtils.getDefaultVersion();
+        assertFalse(version.isEmpty(), "Default version should not be empty");
+    }
+
+    @Test
+    void getDefaultVersion_returnsSemver() {
+        String version = PluginUtils.getDefaultVersion();
+        assertTrue(version.matches("[0-9]+\\.[0-9]+\\.[0-9]+.*"),
+                "Default version should be semver format but was: " + version);
+    }
+
     // --- validateVersion tests ---
 
     @Test
