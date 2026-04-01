@@ -84,10 +84,21 @@ class BinaryDownloaderTest {
     // --- extractTarGz tests ---
 
     @Test
+    void extractTarGz_findsBinaryAtRoot(@TempDir Path tempDir) throws IOException {
+        String binaryName = PlatformDetector.binaryName();
+        File tarFile = createTarGzWithFile(tempDir, binaryName, "tar-binary-content");
+
+        BinaryDownloader downloader = new BinaryDownloader(log, "0.1.0", tempDir.toFile(), null);
+        downloader.extractTarGz(tarFile, tempDir.toFile());
+
+        File extracted = new File(tempDir.toFile(), binaryName);
+        assertTrue(extracted.exists(), "Binary should be extracted from tar.gz");
+        assertEquals("tar-binary-content", new String(Files.readAllBytes(extracted.toPath()), StandardCharsets.UTF_8));
+    }
+
+    @Test
     void extractTarGz_binaryNotInArchive_throwsIOException(@TempDir Path tempDir) throws IOException {
-        // Create a valid .tar.gz that does NOT contain the expected binary
-        File tarFile = tempDir.resolve("dummy.tar.gz").toFile();
-        createTarGzWithDummyFile(tarFile, "some-other-file.txt", "hello");
+        File tarFile = createTarGzWithFile(tempDir, "some-other-file.txt", "hello");
 
         BinaryDownloader downloader = new BinaryDownloader(log, "0.1.0", tempDir.toFile(), null);
 
@@ -108,24 +119,27 @@ class BinaryDownloaderTest {
         return zipFile;
     }
 
-    private void createTarGzWithDummyFile(File tarFile, String fileName, String content) throws IOException {
-        // Use system tar to create a valid .tar.gz
-        Path tempDir = tarFile.getParentFile().toPath();
-        File dummyFile = tempDir.resolve(fileName).toFile();
-        Files.write(dummyFile.toPath(), content.getBytes(StandardCharsets.UTF_8));
+    private File createTarGzWithFile(Path tempDir, String fileName, String content) throws IOException {
+        File contentFile = tempDir.resolve(fileName).toFile();
+        Files.write(contentFile.toPath(), content.getBytes(StandardCharsets.UTF_8));
 
+        File tarFile = tempDir.resolve("test.tar.gz").toFile();
         ProcessBuilder pb = new ProcessBuilder(
                 "tar", "-czf", tarFile.getAbsolutePath(), "-C", tempDir.toString(), fileName
         );
         pb.redirectErrorStream(true);
         try {
             Process process = pb.start();
-            process.waitFor();
+            int exitCode = process.waitFor();
+            if (exitCode != 0) {
+                throw new IOException("tar creation failed with exit code " + exitCode);
+            }
         } catch (InterruptedException e) {
             Thread.currentThread().interrupt();
             throw new IOException("tar creation interrupted", e);
         } finally {
-            dummyFile.delete();
+            contentFile.delete();
         }
+        return tarFile;
     }
 }

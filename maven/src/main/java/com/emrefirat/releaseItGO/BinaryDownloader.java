@@ -3,6 +3,7 @@ package com.emrefirat.releaseItGO;
 import org.apache.maven.plugin.logging.Log;
 
 import java.io.File;
+import java.io.FileInputStream;
 import java.io.FileOutputStream;
 import java.io.IOException;
 import java.io.InputStream;
@@ -11,6 +12,9 @@ import java.net.HttpURLConnection;
 import java.net.URI;
 import java.net.URISyntaxException;
 import java.net.URL;
+import java.nio.charset.StandardCharsets;
+import java.util.zip.ZipEntry;
+import java.util.zip.ZipInputStream;
 
 /**
  * Downloads the release-it-go binary from GitHub Releases.
@@ -143,9 +147,9 @@ public class BinaryDownloader {
 
                 if (responseCode == HttpURLConnection.HTTP_MOVED_TEMP
                         || responseCode == HttpURLConnection.HTTP_MOVED_PERM
-                        || responseCode == 307) {
+                        || responseCode == 307
+                        || responseCode == 308) {
                     String redirectUrl = connection.getHeaderField("Location");
-                    connection.disconnect();
                     if (redirectUrl == null || redirectUrl.isEmpty()) {
                         throw new IOException("Redirect with no Location header from: " + currentUrl);
                     }
@@ -189,27 +193,30 @@ public class BinaryDownloader {
         pb.redirectErrorStream(true);
 
         Process process = pb.start();
-
-        // Read output to prevent process from blocking
-        StringBuilder output = new StringBuilder();
-        try (InputStream is = process.getInputStream()) {
-            byte[] buffer = new byte[BUFFER_SIZE];
-            int bytesRead;
-            while ((bytesRead = is.read(buffer)) != -1) {
-                output.append(new String(buffer, 0, bytesRead));
-            }
-        }
-
-        int exitCode;
         try {
-            exitCode = process.waitFor();
-        } catch (InterruptedException e) {
-            Thread.currentThread().interrupt();
-            throw new IOException("Extraction interrupted", e);
-        }
+            // Read output to prevent process from blocking
+            StringBuilder output = new StringBuilder();
+            try (InputStream is = process.getInputStream()) {
+                byte[] buffer = new byte[BUFFER_SIZE];
+                int bytesRead;
+                while ((bytesRead = is.read(buffer)) != -1) {
+                    output.append(new String(buffer, 0, bytesRead, StandardCharsets.UTF_8));
+                }
+            }
 
-        if (exitCode != 0) {
-            throw new IOException("tar extraction failed (exit code " + exitCode + "): " + output);
+            int exitCode;
+            try {
+                exitCode = process.waitFor();
+            } catch (InterruptedException e) {
+                Thread.currentThread().interrupt();
+                throw new IOException("Extraction interrupted", e);
+            }
+
+            if (exitCode != 0) {
+                throw new IOException("tar extraction failed (exit code " + exitCode + "): " + output);
+            }
+        } finally {
+            process.destroyForcibly();
         }
     }
 
@@ -221,9 +228,8 @@ public class BinaryDownloader {
         String binaryName = PlatformDetector.binaryName();
         boolean found = false;
 
-        try (java.util.zip.ZipInputStream zis = new java.util.zip.ZipInputStream(
-                new java.io.FileInputStream(archive))) {
-            java.util.zip.ZipEntry entry;
+        try (ZipInputStream zis = new ZipInputStream(new FileInputStream(archive))) {
+            ZipEntry entry;
             while ((entry = zis.getNextEntry()) != null) {
                 if (entry.getName().equals(binaryName) || entry.getName().endsWith("/" + binaryName)) {
                     File outFile = new File(targetDir, binaryName);

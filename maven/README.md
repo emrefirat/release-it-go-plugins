@@ -12,7 +12,7 @@ Add the plugin to your `pom.xml`:
     <artifactId>release-it-go-maven-plugin</artifactId>
     <version>1.0.0</version>
     <configuration>
-        <version>0.1.0</version>
+        <version>0.1.3</version> <!-- or omit to use the default -->
     </configuration>
     <executions>
         <execution>
@@ -56,5 +56,5 @@ mvn initialize
 ## Requirements
 
 - Java 8+
-- Maven 3.6+
+- Maven 3.9+
 - `tar` command available on PATH (built-in on Unix and Windows 10+)
