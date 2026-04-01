@@ -26,17 +26,17 @@ Add the plugin to your `pom.xml`:
 
 | Parameter | Property | Default | Description |
 |-----------|----------|---------|-------------|
-| `version` | `releaseItGo.version` | (required) | The release-it-go version to download |
+| `version` | `releaseItGo.version` | `0.1.3` | The release-it-go version to download |
 | `skip` | `releaseItGo.skip` | `false` | Skip plugin execution |
-| `binDir` | `releaseItGo.binDir` | `${project.basedir}/.release-it-go` | Directory where the binary is installed |
 | `token` | `releaseItGo.token` | `$GITHUB_TOKEN` | GitHub token for private repo access |
 
 ## How It Works
 
-1. During the `initialize` phase, the plugin checks if the binary already exists in `binDir`.
-2. If not found, it downloads the correct platform-specific archive from GitHub Releases.
-3. The archive is extracted and the binary is made executable (on Unix).
-4. The plugin runs `release-it-go hooks install` in the project directory.
+1. During the `initialize` phase, the plugin checks if the binary already exists in the project root.
+2. If found, it verifies the version matches — downloads a new one if mismatched.
+3. If not found, it downloads the correct platform-specific archive from GitHub Releases.
+4. The archive is extracted (`.tar.gz` on Unix, `.zip` on Windows) and the binary is made executable (on Unix).
+5. The plugin runs `release-it-go hooks install` in the project directory.
 
 ## Skipping Execution
 

@@ -87,7 +87,7 @@ public class InstallMojo extends AbstractMojo {
         boolean needsDownload = !binaryFile.exists();
         if (!needsDownload) {
             String currentVersion = getInstalledVersion(binaryFile);
-            if (currentVersion != null && !currentVersion.contains(version)) {
+            if (currentVersion != null && !normalizeVersion(currentVersion).equals(normalizeVersion(version))) {
                 getLog().info("Version mismatch: installed=" + currentVersion + ", required=" + version);
                 needsDownload = true;
             } else {
@@ -155,10 +155,11 @@ public class InstallMojo extends AbstractMojo {
      * Returns null if the binary cannot be executed.
      */
     private String getInstalledVersion(File binary) {
+        Process process = null;
         try {
             ProcessBuilder pb = new ProcessBuilder(binary.getAbsolutePath(), "version");
             pb.redirectErrorStream(true);
-            Process process = pb.start();
+            process = pb.start();
             try (BufferedReader reader = new BufferedReader(new InputStreamReader(process.getInputStream()))) {
                 String line = reader.readLine();
                 process.waitFor();
@@ -167,7 +168,32 @@ public class InstallMojo extends AbstractMojo {
         } catch (Exception e) {
             getLog().debug("Could not determine installed version: " + e.getMessage());
             return null;
+        } finally {
+            if (process != null) {
+                process.destroyForcibly();
+            }
         }
+    }
+
+    /**
+     * Extracts a clean version string by stripping any "v" prefix and non-version text.
+     * For example: "release-it-go version 0.1.3" → "0.1.3", "v0.1.3" → "0.1.3"
+     */
+    private String normalizeVersion(String raw) {
+        if (raw == null) {
+            return "";
+        }
+        String trimmed = raw.trim();
+        // Handle output like "release-it-go version 0.1.3"
+        int lastSpace = trimmed.lastIndexOf(' ');
+        if (lastSpace >= 0) {
+            trimmed = trimmed.substring(lastSpace + 1);
+        }
+        // Strip leading "v"
+        if (trimmed.startsWith("v")) {
+            trimmed = trimmed.substring(1);
+        }
+        return trimmed;
     }
 
     /**
