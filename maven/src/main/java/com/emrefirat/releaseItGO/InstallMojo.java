@@ -6,7 +6,6 @@ import org.apache.maven.plugin.MojoFailureException;
 import org.apache.maven.plugins.annotations.LifecyclePhase;
 import org.apache.maven.plugins.annotations.Mojo;
 import org.apache.maven.plugins.annotations.Parameter;
-import org.apache.maven.project.MavenProject;
 
 import java.io.BufferedReader;
 import java.io.File;
@@ -61,8 +60,8 @@ public class InstallMojo extends AbstractMojo {
     @Parameter(property = "releaseItGo.token")
     private String token;
 
-    @Parameter(defaultValue = "${project}", readonly = true)
-    private MavenProject project;
+    @Parameter(defaultValue = "${project.basedir}", readonly = true)
+    private File baseDir;
 
     @Override
     public void execute() throws MojoExecutionException, MojoFailureException {
@@ -70,8 +69,6 @@ public class InstallMojo extends AbstractMojo {
             getLog().info("release-it-go plugin execution skipped");
             return;
         }
-
-        File baseDir = project.getBasedir();
 
         // Check for config file
         if (!PluginUtils.hasConfigFile(baseDir)) {
@@ -131,7 +128,7 @@ public class InstallMojo extends AbstractMojo {
         ProcessBuilder pb = new ProcessBuilder(
                 binary.getAbsolutePath(), "hooks", "install"
         );
-        pb.directory(project.getBasedir());
+        pb.directory(baseDir);
         pb.redirectErrorStream(true);
 
         Process process = null;
