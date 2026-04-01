@@ -72,24 +72,27 @@ final class PluginUtils {
         }
     }
 
+    /** Matches a semver-like version string (e.g. 0.1.3, 1.0.0-beta.1, 0.1.4-hooks.0). */
+    private static final Pattern SEMVER_EXTRACT_PATTERN =
+            Pattern.compile("v?([0-9]+\\.[0-9]+\\.[0-9]+(?:-[a-zA-Z0-9.]+)?)");
+
     /**
-     * Extracts a clean version string by stripping any "v" prefix and non-version text.
-     * For example: "release-it-go version 0.1.3" → "0.1.3", "v0.1.3" → "0.1.3"
+     * Extracts a clean version string from various formats:
+     * <ul>
+     *   <li>"0.1.3" → "0.1.3"</li>
+     *   <li>"v0.1.3" → "0.1.3"</li>
+     *   <li>"release-it-go version 0.1.3" → "0.1.3"</li>
+     *   <li>"release-it-go 0.1.4-hooks.0 (commit: abc, built: ...)" → "0.1.4-hooks.0"</li>
+     * </ul>
      */
     static String normalizeVersion(String raw) {
         if (raw == null) {
             return "";
         }
-        String trimmed = raw.trim();
-        // Handle output like "release-it-go version 0.1.3"
-        int lastSpace = trimmed.lastIndexOf(' ');
-        if (lastSpace >= 0) {
-            trimmed = trimmed.substring(lastSpace + 1);
+        java.util.regex.Matcher matcher = SEMVER_EXTRACT_PATTERN.matcher(raw.trim());
+        if (matcher.find()) {
+            return matcher.group(1);
         }
-        // Strip leading "v"
-        if (trimmed.startsWith("v")) {
-            trimmed = trimmed.substring(1);
-        }
-        return trimmed;
+        return raw.trim();
     }
 }

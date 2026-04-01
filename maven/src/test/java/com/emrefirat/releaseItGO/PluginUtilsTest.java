@@ -64,6 +64,24 @@ class PluginUtilsTest {
         assertFalse(v1.equals(v2), "0.1.3 and 0.1.30 should be different versions");
     }
 
+    @Test
+    void normalizeVersion_fullBinaryOutput() {
+        // Real binary output format: "release-it-go 0.1.4-hooks.0 (commit: f420228, built: 2026-03-30T22:06:39Z)"
+        assertEquals("0.1.4-hooks.0",
+                PluginUtils.normalizeVersion("release-it-go 0.1.4-hooks.0 (commit: f420228, built: 2026-03-30T22:06:39Z)"));
+    }
+
+    @Test
+    void normalizeVersion_fullBinaryOutputSimple() {
+        assertEquals("0.2.0",
+                PluginUtils.normalizeVersion("release-it-go 0.2.0 (commit: abc1234, built: 2026-04-01T10:00:00Z)"));
+    }
+
+    @Test
+    void normalizeVersion_preReleaseVersion() {
+        assertEquals("1.0.0-beta.1", PluginUtils.normalizeVersion("v1.0.0-beta.1"));
+    }
+
     // --- hasConfigFile tests ---
 
     @Test
