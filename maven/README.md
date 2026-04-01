@@ -11,9 +11,8 @@ Add the plugin to your `pom.xml`:
     <groupId>com.emrefirat</groupId>
     <artifactId>release-it-go-maven-plugin</artifactId>
     <version>1.0.0</version>
-    <configuration>
-        <version>0.1.3</version> <!-- or omit to use the default -->
-    </configuration>
+    <!-- version is optional — defaults to the bundled version (currently 0.2.0) -->
+    <!-- <configuration><version>0.2.0</version></configuration> -->
     <executions>
         <execution>
             <goals><goal>install</goal></goals>
@@ -61,14 +60,14 @@ mvn initialize
 When building the plugin, you can specify which release-it-go version to bundle as the default:
 
 ```bash
-# Bundle with default version (0.1.3)
+# Bundle with default version (0.2.0)
 mvn package
 
 # Bundle with a specific version
-mvn package -DreleaseItGo.default.version=0.2.0
+mvn package -DreleaseItGo.default.version=0.3.0
 
 # Deploy with a specific version
-mvn deploy -DreleaseItGo.default.version=0.2.0
+mvn deploy -DreleaseItGo.default.version=0.3.0
 ```
 
 Users of the plugin can still override the version in their own `pom.xml` or with `-DreleaseItGo.version=X.Y.Z`.
