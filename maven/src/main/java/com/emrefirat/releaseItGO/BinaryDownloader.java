@@ -273,7 +273,7 @@ public class BinaryDownloader {
      * Downloads the checksums file and verifies the archive's SHA256 hash.
      * If the checksums file is not available (e.g. older releases), logs a warning and continues.
      */
-    private void verifyChecksum(File archiveFile, String ver, String os, String arch, String ext)
+    void verifyChecksum(File archiveFile, String ver, String os, String arch, String ext)
             throws IOException {
         String archiveName = String.format("release-it-go_%s_%s_%s%s", ver, os, arch, ext);
         String checksumsUrl = String.format(CHECKSUMS_URL_TEMPLATE, ver);
@@ -367,7 +367,7 @@ public class BinaryDownloader {
     /**
      * Masks query string parameters in a URL to prevent leaking signed tokens in logs.
      */
-    private static String maskUrl(String url) {
+    static String maskUrl(String url) {
         int queryStart = url.indexOf('?');
         if (queryStart < 0) {
             return url;
