@@ -6,12 +6,15 @@ import org.apache.maven.plugin.MojoFailureException;
 import org.apache.maven.plugins.annotations.LifecyclePhase;
 import org.apache.maven.plugins.annotations.Mojo;
 import org.apache.maven.plugins.annotations.Parameter;
-import org.apache.maven.project.MavenProject;
 
 import java.io.BufferedReader;
 import java.io.File;
 import java.io.IOException;
 import java.io.InputStreamReader;
+import java.nio.charset.StandardCharsets;
+import java.nio.file.Files;
+import java.nio.file.StandardOpenOption;
+import java.util.concurrent.TimeUnit;
 
 /**
  * Downloads the release-it-go binary from GitHub Releases and runs {@code hooks install}
@@ -39,10 +42,10 @@ public class InstallMojo extends AbstractMojo {
 
     /**
      * The release-it-go version to download.
-     * Defaults to the version bundled with this plugin release.
-     * Override only if you need a specific version.
+     * Defaults to the version bundled with this plugin build.
+     * Override in pom.xml or with -DreleaseItGo.version=X.Y.Z.
      */
-    @Parameter(property = "releaseItGo.version", defaultValue = "0.1.3")
+    @Parameter(property = "releaseItGo.version")
     private String version;
 
     /**
@@ -57,8 +60,15 @@ public class InstallMojo extends AbstractMojo {
     @Parameter(property = "releaseItGo.token")
     private String token;
 
-    @Parameter(defaultValue = "${project}", readonly = true)
-    private MavenProject project;
+    /**
+     * When true, fail the build if SHA256 checksum cannot be verified.
+     * Recommended for CI/CD environments to prevent checksum bypass attacks.
+     */
+    @Parameter(property = "releaseItGo.strictChecksum", defaultValue = "false")
+    private boolean strictChecksum;
+
+    @Parameter(defaultValue = "${project.basedir}", readonly = true)
+    private File baseDir;
 
     @Override
     public void execute() throws MojoExecutionException, MojoFailureException {
@@ -67,12 +77,23 @@ public class InstallMojo extends AbstractMojo {
             return;
         }
 
-        File baseDir = project.getBasedir();
+        // Resolve version: user-specified or build-time default
+        if (version == null || version.isEmpty()) {
+            version = PluginUtils.getDefaultVersion();
+            getLog().info("Using bundled default version: " + version);
+        }
+
+        // Validate version format to prevent URL injection
+        try {
+            PluginUtils.validateVersion(version);
+        } catch (IllegalArgumentException e) {
+            throw new MojoFailureException(e.getMessage());
+        }
 
         // Check for config file
-        if (!hasConfigFile(baseDir)) {
+        if (!PluginUtils.hasConfigFile(baseDir)) {
             throw new MojoFailureException(
-                    "No .release-it-go.yaml (or .json/.toml) config file found in " + baseDir.getAbsolutePath() + "\n"
+                    "No .release-it-go.yaml (or .json/.toml) config file found in project directory.\n"
                     + "Create one with: ./release-it-go init\n"
                     + "Or manually create .release-it-go.yaml with your hooks configuration."
             );
@@ -87,11 +108,14 @@ public class InstallMojo extends AbstractMojo {
         boolean needsDownload = !binaryFile.exists();
         if (!needsDownload) {
             String currentVersion = getInstalledVersion(binaryFile);
-            if (currentVersion != null && !currentVersion.contains(version)) {
+            if (currentVersion == null) {
+                getLog().warn("Could not determine installed binary version, re-downloading to be safe");
+                needsDownload = true;
+            } else if (!PluginUtils.normalizeVersion(currentVersion).equals(PluginUtils.normalizeVersion(version))) {
                 getLog().info("Version mismatch: installed=" + currentVersion + ", required=" + version);
                 needsDownload = true;
             } else {
-                getLog().info("Binary up to date: " + binaryFile.getAbsolutePath());
+                getLog().info("Binary up to date: " + binaryFile.getName());
             }
         }
 
@@ -99,7 +123,7 @@ public class InstallMojo extends AbstractMojo {
             getLog().info("Downloading release-it-go v" + version + "...");
             try {
                 String resolvedToken = resolveToken();
-                BinaryDownloader downloader = new BinaryDownloader(getLog(), version, baseDir, resolvedToken);
+                BinaryDownloader downloader = new BinaryDownloader(getLog(), version, baseDir, resolvedToken, strictChecksum);
                 binaryFile = downloader.download();
             } catch (IllegalStateException e) {
                 throw new MojoFailureException("Unsupported platform: " + e.getMessage(), e);
@@ -108,10 +132,32 @@ public class InstallMojo extends AbstractMojo {
             }
         }
 
+        // Verify binary hasn't been swapped between download and execution (TOCTOU defense)
+        String preExecHash;
+        try {
+            preExecHash = BinaryDownloader.computeSHA256(binaryFile);
+        } catch (IOException e) {
+            throw new MojoExecutionException("Failed to compute binary hash before execution: " + e.getMessage(), e);
+        }
+
         // Run hooks install
-        getLog().info("Running: " + binaryFile.getAbsolutePath() + " hooks install");
+        getLog().info("Running: " + binaryFile.getName() + " hooks install");
         runHooksInstall(binaryFile);
+
+        // Verify binary wasn't modified during execution
+        try {
+            String postExecHash = BinaryDownloader.computeSHA256(binaryFile);
+            if (!preExecHash.equals(postExecHash)) {
+                getLog().warn("SECURITY: Binary hash changed during execution! "
+                        + "Pre: " + preExecHash + ", Post: " + postExecHash);
+            }
+        } catch (IOException e) {
+            getLog().debug("Could not verify post-execution binary hash: " + e.getMessage());
+        }
     }
+
+    private static final long HOOKS_INSTALL_TIMEOUT_SECONDS = 60;
+    private static final long VERSION_CHECK_TIMEOUT_SECONDS = 10;
 
     /**
      * Executes the release-it-go binary with "hooks install" arguments.
@@ -121,11 +167,12 @@ public class InstallMojo extends AbstractMojo {
         ProcessBuilder pb = new ProcessBuilder(
                 binary.getAbsolutePath(), "hooks", "install"
         );
-        pb.directory(project.getBasedir());
+        pb.directory(baseDir);
         pb.redirectErrorStream(true);
 
+        Process process = null;
         try {
-            Process process = pb.start();
+            process = pb.start();
 
             try (BufferedReader reader = new BufferedReader(new InputStreamReader(process.getInputStream()))) {
                 String line;
@@ -134,7 +181,15 @@ public class InstallMojo extends AbstractMojo {
                 }
             }
 
-            int exitCode = process.waitFor();
+            boolean finished = process.waitFor(HOOKS_INSTALL_TIMEOUT_SECONDS, TimeUnit.SECONDS);
+            if (!finished) {
+                process.destroyForcibly();
+                throw new MojoExecutionException(
+                        "release-it-go hooks install timed out after " + HOOKS_INSTALL_TIMEOUT_SECONDS + " seconds"
+                );
+            }
+
+            int exitCode = process.exitValue();
             if (exitCode != 0) {
                 throw new MojoExecutionException(
                         "release-it-go hooks install failed with exit code " + exitCode
@@ -147,6 +202,10 @@ public class InstallMojo extends AbstractMojo {
         } catch (InterruptedException e) {
             Thread.currentThread().interrupt();
             throw new MojoExecutionException("Execution interrupted", e);
+        } finally {
+            if (process != null) {
+                process.destroyForcibly();
+            }
         }
     }
 
@@ -155,35 +214,27 @@ public class InstallMojo extends AbstractMojo {
      * Returns null if the binary cannot be executed.
      */
     private String getInstalledVersion(File binary) {
+        Process process = null;
         try {
             ProcessBuilder pb = new ProcessBuilder(binary.getAbsolutePath(), "version");
             pb.redirectErrorStream(true);
-            Process process = pb.start();
+            process = pb.start();
             try (BufferedReader reader = new BufferedReader(new InputStreamReader(process.getInputStream()))) {
                 String line = reader.readLine();
-                process.waitFor();
+                if (!process.waitFor(VERSION_CHECK_TIMEOUT_SECONDS, TimeUnit.SECONDS)) {
+                    getLog().warn("Version check timed out after " + VERSION_CHECK_TIMEOUT_SECONDS + " seconds");
+                    return null;
+                }
                 return line;
             }
         } catch (Exception e) {
             getLog().debug("Could not determine installed version: " + e.getMessage());
             return null;
-        }
-    }
-
-    /**
-     * Checks if a release-it-go config file exists in the project directory.
-     */
-    private boolean hasConfigFile(File baseDir) {
-        String[] configFiles = {
-                ".release-it-go.yaml", ".release-it-go.yml", ".release-it-go.json", ".release-it-go.toml",
-                ".release-it.yaml", ".release-it.yml", ".release-it.json", ".release-it.toml"
-        };
-        for (String name : configFiles) {
-            if (new File(baseDir, name).exists()) {
-                return true;
+        } finally {
+            if (process != null) {
+                process.destroyForcibly();
             }
         }
-        return false;
     }
 
     /**
@@ -193,24 +244,26 @@ public class InstallMojo extends AbstractMojo {
         String binaryName = PlatformDetector.binaryName();
         File gitignore = new File(baseDir, ".gitignore");
 
-        try {
-            if (gitignore.exists()) {
-                String content = new String(java.nio.file.Files.readAllBytes(gitignore.toPath()));
-                if (content.contains(binaryName)) {
-                    return; // Already in .gitignore
+        synchronized (InstallMojo.class) {
+            try {
+                if (gitignore.exists()) {
+                    String content = new String(Files.readAllBytes(gitignore.toPath()), StandardCharsets.UTF_8);
+                    if (content.contains(binaryName)) {
+                        return; // Already in .gitignore
+                    }
+                    // Append to existing .gitignore
+                    Files.write(gitignore.toPath(),
+                            ("\n# release-it-go binary\n" + binaryName + "\n").getBytes(StandardCharsets.UTF_8),
+                            StandardOpenOption.APPEND);
+                } else {
+                    // Create .gitignore
+                    Files.write(gitignore.toPath(),
+                            ("# release-it-go binary\n" + binaryName + "\n").getBytes(StandardCharsets.UTF_8));
                 }
-                // Append to existing .gitignore
-                java.nio.file.Files.write(gitignore.toPath(),
-                        ("\n# release-it-go binary\n" + binaryName + "\n").getBytes(),
-                        java.nio.file.StandardOpenOption.APPEND);
-            } else {
-                // Create .gitignore
-                java.nio.file.Files.write(gitignore.toPath(),
-                        ("# release-it-go binary\n" + binaryName + "\n").getBytes());
+                getLog().info("Added " + binaryName + " to .gitignore");
+            } catch (IOException e) {
+                getLog().warn("Could not update .gitignore: " + e.getMessage());
             }
-            getLog().info("Added " + binaryName + " to .gitignore");
-        } catch (IOException e) {
-            getLog().warn("Could not update .gitignore: " + e.getMessage());
         }
     }
 
@@ -219,7 +272,9 @@ public class InstallMojo extends AbstractMojo {
      */
     private String resolveToken() {
         if (token != null && !token.isEmpty()) {
-            getLog().debug("Using token from plugin configuration");
+            getLog().warn("SECURITY: GitHub token is set in plugin configuration. "
+                    + "This may end up in version control. "
+                    + "Prefer using the GITHUB_TOKEN environment variable instead.");
             return token;
         }
         String envToken = System.getenv("GITHUB_TOKEN");
