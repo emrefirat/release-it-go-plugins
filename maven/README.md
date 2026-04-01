@@ -26,7 +26,7 @@ Add the plugin to your `pom.xml`:
 
 | Parameter | Property | Default | Description |
 |-----------|----------|---------|-------------|
-| `version` | `releaseItGo.version` | `0.1.3` | The release-it-go version to download |
+| `version` | `releaseItGo.version` | *(bundled at build time)* | The release-it-go version to download |
 | `skip` | `releaseItGo.skip` | `false` | Skip plugin execution |
 | `token` | `releaseItGo.token` | `$GITHUB_TOKEN` | GitHub token for private repo access |
 | `strictChecksum` | `releaseItGo.strictChecksum` | `false` | Fail build if SHA256 checksum cannot be verified. Recommended for CI/CD |
@@ -55,6 +55,23 @@ For private repos, set `GITHUB_TOKEN` environment variable or configure token in
 export GITHUB_TOKEN=ghp_your_token_here
 mvn initialize
 ```
+
+## Building with a Custom Default Version
+
+When building the plugin, you can specify which release-it-go version to bundle as the default:
+
+```bash
+# Bundle with default version (0.1.3)
+mvn package
+
+# Bundle with a specific version
+mvn package -DreleaseItGo.default.version=0.2.0
+
+# Deploy with a specific version
+mvn deploy -DreleaseItGo.default.version=0.2.0
+```
+
+Users of the plugin can still override the version in their own `pom.xml` or with `-DreleaseItGo.version=X.Y.Z`.
 
 ## Requirements
 

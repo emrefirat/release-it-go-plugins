@@ -42,10 +42,10 @@ public class InstallMojo extends AbstractMojo {
 
     /**
      * The release-it-go version to download.
-     * Defaults to the version bundled with this plugin release.
-     * Override only if you need a specific version.
+     * Defaults to the version bundled with this plugin build.
+     * Override in pom.xml or with -DreleaseItGo.version=X.Y.Z.
      */
-    @Parameter(property = "releaseItGo.version", defaultValue = "0.1.3")
+    @Parameter(property = "releaseItGo.version")
     private String version;
 
     /**
@@ -75,6 +75,12 @@ public class InstallMojo extends AbstractMojo {
         if (skip) {
             getLog().info("release-it-go plugin execution skipped");
             return;
+        }
+
+        // Resolve version: user-specified or build-time default
+        if (version == null || version.isEmpty()) {
+            version = PluginUtils.getDefaultVersion();
+            getLog().info("Using bundled default version: " + version);
         }
 
         // Validate version format to prevent URL injection

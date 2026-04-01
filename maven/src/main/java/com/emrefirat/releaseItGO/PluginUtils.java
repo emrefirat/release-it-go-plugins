@@ -1,6 +1,9 @@
 package com.emrefirat.releaseItGO;
 
 import java.io.File;
+import java.io.IOException;
+import java.io.InputStream;
+import java.util.Properties;
 import java.util.regex.Pattern;
 
 /**
@@ -11,6 +14,9 @@ final class PluginUtils {
     /** Allowed version format: major.minor.patch with optional pre-release suffix. */
     private static final Pattern VERSION_PATTERN =
             Pattern.compile("^[0-9]+\\.[0-9]+\\.[0-9]+(-[a-zA-Z0-9.]+)?$");
+
+    private static final String DEFAULTS_RESOURCE = "release-it-go-defaults.properties";
+    private static final String FALLBACK_VERSION = "0.1.3";
 
     private static final String[] CONFIG_FILES = {
             ".release-it-go.yaml", ".release-it-go.yml", ".release-it-go.json", ".release-it-go.toml",
@@ -31,6 +37,26 @@ final class PluginUtils {
             }
         }
         return false;
+    }
+
+    /**
+     * Returns the default release-it-go version bundled with this plugin build.
+     * The value is injected by Maven resource filtering at build time.
+     */
+    static String getDefaultVersion() {
+        try (InputStream is = PluginUtils.class.getClassLoader().getResourceAsStream(DEFAULTS_RESOURCE)) {
+            if (is != null) {
+                Properties props = new Properties();
+                props.load(is);
+                String version = props.getProperty("version", "").trim();
+                if (!version.isEmpty() && !version.contains("$")) {
+                    return version;
+                }
+            }
+        } catch (IOException e) {
+            // fall through to fallback
+        }
+        return FALLBACK_VERSION;
     }
 
     /**
