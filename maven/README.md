@@ -29,14 +29,17 @@ Add the plugin to your `pom.xml`:
 | `version` | `releaseItGo.version` | `0.1.3` | The release-it-go version to download |
 | `skip` | `releaseItGo.skip` | `false` | Skip plugin execution |
 | `token` | `releaseItGo.token` | `$GITHUB_TOKEN` | GitHub token for private repo access |
+| `strictChecksum` | `releaseItGo.strictChecksum` | `false` | Fail build if SHA256 checksum cannot be verified. Recommended for CI/CD |
 
 ## How It Works
 
 1. During the `initialize` phase, the plugin checks if the binary already exists in the project root.
 2. If found, it verifies the version matches — downloads a new one if mismatched.
 3. If not found, it downloads the correct platform-specific archive from GitHub Releases.
-4. The archive is extracted (`.tar.gz` on Unix, `.zip` on Windows) and the binary is made executable (on Unix).
-5. The plugin runs `release-it-go hooks install` in the project directory.
+4. The archive's SHA256 checksum is verified against `checksums.txt` from the release.
+5. The archive is extracted (`.tar.gz` on Unix, `.zip` on Windows) and the binary is made executable (on Unix).
+6. The binary hash is recorded and the plugin runs `release-it-go hooks install` in the project directory.
+7. After execution, the binary hash is re-verified to detect tampering.
 
 ## Skipping Execution
 

@@ -60,6 +60,13 @@ public class InstallMojo extends AbstractMojo {
     @Parameter(property = "releaseItGo.token")
     private String token;
 
+    /**
+     * When true, fail the build if SHA256 checksum cannot be verified.
+     * Recommended for CI/CD environments to prevent checksum bypass attacks.
+     */
+    @Parameter(property = "releaseItGo.strictChecksum", defaultValue = "false")
+    private boolean strictChecksum;
+
     @Parameter(defaultValue = "${project.basedir}", readonly = true)
     private File baseDir;
 
@@ -80,7 +87,7 @@ public class InstallMojo extends AbstractMojo {
         // Check for config file
         if (!PluginUtils.hasConfigFile(baseDir)) {
             throw new MojoFailureException(
-                    "No .release-it-go.yaml (or .json/.toml) config file found in " + baseDir.getAbsolutePath() + "\n"
+                    "No .release-it-go.yaml (or .json/.toml) config file found in project directory.\n"
                     + "Create one with: ./release-it-go init\n"
                     + "Or manually create .release-it-go.yaml with your hooks configuration."
             );
@@ -102,7 +109,7 @@ public class InstallMojo extends AbstractMojo {
                 getLog().info("Version mismatch: installed=" + currentVersion + ", required=" + version);
                 needsDownload = true;
             } else {
-                getLog().info("Binary up to date: " + binaryFile.getAbsolutePath());
+                getLog().info("Binary up to date: " + binaryFile.getName());
             }
         }
 
@@ -110,7 +117,7 @@ public class InstallMojo extends AbstractMojo {
             getLog().info("Downloading release-it-go v" + version + "...");
             try {
                 String resolvedToken = resolveToken();
-                BinaryDownloader downloader = new BinaryDownloader(getLog(), version, baseDir, resolvedToken);
+                BinaryDownloader downloader = new BinaryDownloader(getLog(), version, baseDir, resolvedToken, strictChecksum);
                 binaryFile = downloader.download();
             } catch (IllegalStateException e) {
                 throw new MojoFailureException("Unsupported platform: " + e.getMessage(), e);
@@ -119,9 +126,28 @@ public class InstallMojo extends AbstractMojo {
             }
         }
 
+        // Verify binary hasn't been swapped between download and execution (TOCTOU defense)
+        String preExecHash;
+        try {
+            preExecHash = BinaryDownloader.computeSHA256(binaryFile);
+        } catch (IOException e) {
+            throw new MojoExecutionException("Failed to compute binary hash before execution: " + e.getMessage(), e);
+        }
+
         // Run hooks install
-        getLog().info("Running: " + binaryFile.getAbsolutePath() + " hooks install");
+        getLog().info("Running: " + binaryFile.getName() + " hooks install");
         runHooksInstall(binaryFile);
+
+        // Verify binary wasn't modified during execution
+        try {
+            String postExecHash = BinaryDownloader.computeSHA256(binaryFile);
+            if (!preExecHash.equals(postExecHash)) {
+                getLog().warn("SECURITY: Binary hash changed during execution! "
+                        + "Pre: " + preExecHash + ", Post: " + postExecHash);
+            }
+        } catch (IOException e) {
+            getLog().debug("Could not verify post-execution binary hash: " + e.getMessage());
+        }
     }
 
     private static final long HOOKS_INSTALL_TIMEOUT_SECONDS = 60;

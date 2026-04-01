@@ -39,20 +39,23 @@ public class BinaryDownloader {
     private final String version;
     private final File binDir;
     private final String token;
+    private final boolean strictChecksum;
 
     /**
      * Creates a new BinaryDownloader.
      *
-     * @param logger  Maven logger for output
-     * @param version the release-it-go version to download (e.g. "0.1.0")
-     * @param binDir  the directory where the binary will be stored
-     * @param token   GitHub token for private repo access (nullable)
+     * @param logger          Maven logger for output
+     * @param version         the release-it-go version to download (e.g. "0.1.0")
+     * @param binDir          the directory where the binary will be stored
+     * @param token           GitHub token for private repo access (nullable)
+     * @param strictChecksum  when true, fail if checksum cannot be verified
      */
-    public BinaryDownloader(Log logger, String version, File binDir, String token) {
+    public BinaryDownloader(Log logger, String version, File binDir, String token, boolean strictChecksum) {
         this.logger = logger;
         this.version = version;
         this.binDir = binDir;
         this.token = token;
+        this.strictChecksum = strictChecksum;
     }
 
     /**
@@ -71,11 +74,11 @@ public class BinaryDownloader {
 
         // Remove old binary if exists (caller handles version check)
         if (binaryFile.exists() && !binaryFile.delete()) {
-            throw new IOException("Failed to delete existing binary: " + binaryFile.getAbsolutePath());
+            throw new IOException("Failed to delete existing binary: " + binaryFile.getName());
         }
 
         if (!binDir.exists() && !binDir.mkdirs()) {
-            throw new IOException("Failed to create directory: " + binDir.getAbsolutePath());
+            throw new IOException("Failed to create binary directory");
         }
 
         String ext = "windows".equals(os) ? ".zip" : ".tar.gz";
@@ -97,21 +100,21 @@ public class BinaryDownloader {
         }
 
         if (!archiveFile.delete()) {
-            logger.warn("Failed to delete archive: " + archiveFile.getAbsolutePath());
+            logger.warn("Failed to delete archive: " + archiveFile.getName());
         }
 
         if (!"windows".equals(os)) {
             // Owner-only executable to prevent other users from running or replacing
             if (!binaryFile.setExecutable(true, true)) {
-                logger.warn("Failed to set executable permission on: " + binaryFile.getAbsolutePath());
+                logger.warn("Failed to set executable permission on binary");
             }
         }
 
         if (!binaryFile.exists()) {
-            throw new IOException("Binary not found after extraction: " + binaryFile.getAbsolutePath());
+            throw new IOException("Binary not found after extraction: " + binaryFile.getName());
         }
 
-        logger.info("Binary installed: " + binaryFile.getAbsolutePath());
+        logger.info("Binary installed: " + binaryFile.getName());
         return binaryFile;
     }
 
@@ -262,7 +265,7 @@ public class BinaryDownloader {
         }
 
         if (!found) {
-            throw new IOException("Binary '" + binaryName + "' not found in archive: " + archive.getAbsolutePath());
+            throw new IOException("Binary '" + binaryName + "' not found in archive: " + archive.getName());
         }
     }
 
@@ -279,8 +282,14 @@ public class BinaryDownloader {
         try {
             downloadFile(checksumsUrl, checksumsFile);
         } catch (IOException e) {
+            if (strictChecksum) {
+                throw new IOException(
+                        "SECURITY: Checksums file not available and strict checksum mode is enabled. "
+                        + "Cannot verify binary integrity. Aborting download.", e);
+            }
             logger.warn("Checksums file not available (" + e.getMessage()
-                    + "). Skipping integrity verification — consider upgrading release-it-go.");
+                    + "). Skipping integrity verification — consider upgrading release-it-go "
+                    + "or enabling strictChecksum mode.");
             return;
         }
 
@@ -300,6 +309,11 @@ public class BinaryDownloader {
             }
 
             if (expectedHash == null) {
+                if (strictChecksum) {
+                    throw new IOException(
+                            "SECURITY: No checksum entry found for " + archiveName
+                            + " in checksums.txt. Strict checksum mode requires verification. Aborting.");
+                }
                 logger.warn("No checksum entry found for " + archiveName + " in checksums.txt. Skipping verification.");
                 return;
             }
