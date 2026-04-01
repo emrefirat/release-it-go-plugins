@@ -50,8 +50,23 @@ class PlatformDetectorTest {
     }
 
     @Test
+    void detectOS_caseInsensitive_linux() {
+        assertEquals("linux", PlatformDetector.detectOS("LINUX"));
+    }
+
+    @Test
+    void detectOS_caseInsensitive_windows() {
+        assertEquals("windows", PlatformDetector.detectOS("WINDOWS 11"));
+    }
+
+    @Test
     void detectOS_unsupported_throwsException() {
         assertThrows(IllegalStateException.class, () -> PlatformDetector.detectOS("FreeBSD"));
+    }
+
+    @Test
+    void detectOS_solaris_throwsException() {
+        assertThrows(IllegalStateException.class, () -> PlatformDetector.detectOS("SunOS"));
     }
 
     @Test

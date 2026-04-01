@@ -97,6 +97,32 @@ class PluginUtilsTest {
     }
 
     @Test
+    void hasConfigFile_releaseItYmlExists_returnsTrue(@TempDir Path tempDir) throws IOException {
+        Files.createFile(tempDir.resolve(".release-it.yml"));
+        assertTrue(PluginUtils.hasConfigFile(tempDir.toFile()));
+    }
+
+    @Test
+    void hasConfigFile_releaseItJsonExists_returnsTrue(@TempDir Path tempDir) throws IOException {
+        Files.createFile(tempDir.resolve(".release-it.json"));
+        assertTrue(PluginUtils.hasConfigFile(tempDir.toFile()));
+    }
+
+    @Test
+    void hasConfigFile_releaseItTomlExists_returnsTrue(@TempDir Path tempDir) throws IOException {
+        Files.createFile(tempDir.resolve(".release-it.toml"));
+        assertTrue(PluginUtils.hasConfigFile(tempDir.toFile()));
+    }
+
+    @Test
+    void hasConfigFile_unrelatedFiles_returnsFalse(@TempDir Path tempDir) throws IOException {
+        Files.createFile(tempDir.resolve("pom.xml"));
+        Files.createFile(tempDir.resolve(".gitignore"));
+        Files.createFile(tempDir.resolve("release-it-go.yaml")); // missing leading dot
+        assertFalse(PluginUtils.hasConfigFile(tempDir.toFile()));
+    }
+
+    @Test
     void hasConfigFile_noConfigFile_returnsFalse(@TempDir Path tempDir) {
         assertFalse(PluginUtils.hasConfigFile(tempDir.toFile()));
     }
