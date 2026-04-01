@@ -33,7 +33,7 @@ class BinaryDownloaderTest {
         byte[] content = "fake-binary-content".getBytes(StandardCharsets.UTF_8);
         File zipFile = createZipWithEntry(tempDir, binaryName, content);
 
-        BinaryDownloader downloader = new BinaryDownloader(log, "0.1.0", tempDir.toFile(), null);
+        BinaryDownloader downloader = new BinaryDownloader(log, "0.1.0", tempDir.toFile(), null, false);
         downloader.extractZip(zipFile, tempDir.toFile());
 
         File extracted = new File(tempDir.toFile(), binaryName);
@@ -47,7 +47,7 @@ class BinaryDownloaderTest {
         byte[] content = "nested-binary".getBytes(StandardCharsets.UTF_8);
         File zipFile = createZipWithEntry(tempDir, "release-it-go_0.1.0_windows_amd64/" + binaryName, content);
 
-        BinaryDownloader downloader = new BinaryDownloader(log, "0.1.0", tempDir.toFile(), null);
+        BinaryDownloader downloader = new BinaryDownloader(log, "0.1.0", tempDir.toFile(), null, false);
         downloader.extractZip(zipFile, tempDir.toFile());
 
         File extracted = new File(tempDir.toFile(), binaryName);
@@ -59,7 +59,7 @@ class BinaryDownloaderTest {
     void extractZip_binaryNotInArchive_throwsIOException(@TempDir Path tempDir) throws IOException {
         File zipFile = createZipWithEntry(tempDir, "some-other-file.txt", "hello".getBytes(StandardCharsets.UTF_8));
 
-        BinaryDownloader downloader = new BinaryDownloader(log, "0.1.0", tempDir.toFile(), null);
+        BinaryDownloader downloader = new BinaryDownloader(log, "0.1.0", tempDir.toFile(), null, false);
 
         IOException ex = assertThrows(IOException.class, () ->
                 downloader.extractZip(zipFile, tempDir.toFile())
@@ -74,7 +74,7 @@ class BinaryDownloaderTest {
             // empty zip
         }
 
-        BinaryDownloader downloader = new BinaryDownloader(log, "0.1.0", tempDir.toFile(), null);
+        BinaryDownloader downloader = new BinaryDownloader(log, "0.1.0", tempDir.toFile(), null, false);
 
         assertThrows(IOException.class, () ->
                 downloader.extractZip(zipFile, tempDir.toFile())
@@ -88,7 +88,7 @@ class BinaryDownloaderTest {
         String binaryName = PlatformDetector.binaryName();
         File tarFile = createTarGzWithFile(tempDir, binaryName, "tar-binary-content");
 
-        BinaryDownloader downloader = new BinaryDownloader(log, "0.1.0", tempDir.toFile(), null);
+        BinaryDownloader downloader = new BinaryDownloader(log, "0.1.0", tempDir.toFile(), null, false);
         downloader.extractTarGz(tarFile, tempDir.toFile());
 
         File extracted = new File(tempDir.toFile(), binaryName);
@@ -100,7 +100,7 @@ class BinaryDownloaderTest {
     void extractTarGz_binaryNotInArchive_throwsIOException(@TempDir Path tempDir) throws IOException {
         File tarFile = createTarGzWithFile(tempDir, "some-other-file.txt", "hello");
 
-        BinaryDownloader downloader = new BinaryDownloader(log, "0.1.0", tempDir.toFile(), null);
+        BinaryDownloader downloader = new BinaryDownloader(log, "0.1.0", tempDir.toFile(), null, false);
 
         assertThrows(IOException.class, () ->
                 downloader.extractTarGz(tarFile, tempDir.toFile())
@@ -114,7 +114,7 @@ class BinaryDownloaderTest {
         String binaryName = PlatformDetector.binaryName();
         File zipFile = createZipWithEntry(tempDir, "../../" + binaryName, "evil".getBytes(StandardCharsets.UTF_8));
 
-        BinaryDownloader downloader = new BinaryDownloader(log, "0.1.0", tempDir.toFile(), null);
+        BinaryDownloader downloader = new BinaryDownloader(log, "0.1.0", tempDir.toFile(), null, false);
 
         IOException ex = assertThrows(IOException.class, () ->
                 downloader.extractZip(zipFile, tempDir.toFile())
@@ -128,7 +128,7 @@ class BinaryDownloaderTest {
         File zipFile = createZipWithEntry(tempDir,
                 "subdir/../../../tmp/" + binaryName, "evil".getBytes(StandardCharsets.UTF_8));
 
-        BinaryDownloader downloader = new BinaryDownloader(log, "0.1.0", tempDir.toFile(), null);
+        BinaryDownloader downloader = new BinaryDownloader(log, "0.1.0", tempDir.toFile(), null, false);
 
         IOException ex = assertThrows(IOException.class, () ->
                 downloader.extractZip(zipFile, tempDir.toFile())
