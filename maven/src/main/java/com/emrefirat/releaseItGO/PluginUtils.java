@@ -1,11 +1,16 @@
 package com.emrefirat.releaseItGO;
 
 import java.io.File;
+import java.util.regex.Pattern;
 
 /**
  * Shared utility methods for the release-it-go Maven plugin.
  */
 final class PluginUtils {
+
+    /** Allowed version format: major.minor.patch with optional pre-release suffix. */
+    private static final Pattern VERSION_PATTERN =
+            Pattern.compile("^[0-9]+\\.[0-9]+\\.[0-9]+(-[a-zA-Z0-9.]+)?$");
 
     private static final String[] CONFIG_FILES = {
             ".release-it-go.yaml", ".release-it-go.yml", ".release-it-go.json", ".release-it-go.toml",
@@ -26,6 +31,19 @@ final class PluginUtils {
             }
         }
         return false;
+    }
+
+    /**
+     * Validates that a version string matches the expected semver format.
+     * Prevents path traversal and URL injection via malicious version values.
+     *
+     * @throws IllegalArgumentException if the version format is invalid
+     */
+    static void validateVersion(String version) {
+        if (version == null || !VERSION_PATTERN.matcher(version).matches()) {
+            throw new IllegalArgumentException(
+                    "Invalid version format: '" + version + "'. Expected semver (e.g. 0.1.3 or 1.0.0-beta.1)");
+        }
     }
 
     /**

@@ -70,6 +70,13 @@ public class InstallMojo extends AbstractMojo {
             return;
         }
 
+        // Validate version format to prevent URL injection
+        try {
+            PluginUtils.validateVersion(version);
+        } catch (IllegalArgumentException e) {
+            throw new MojoFailureException(e.getMessage());
+        }
+
         // Check for config file
         if (!PluginUtils.hasConfigFile(baseDir)) {
             throw new MojoFailureException(
@@ -233,7 +240,9 @@ public class InstallMojo extends AbstractMojo {
      */
     private String resolveToken() {
         if (token != null && !token.isEmpty()) {
-            getLog().debug("Using token from plugin configuration");
+            getLog().warn("SECURITY: GitHub token is set in plugin configuration. "
+                    + "This may end up in version control. "
+                    + "Prefer using the GITHUB_TOKEN environment variable instead.");
             return token;
         }
         String envToken = System.getenv("GITHUB_TOKEN");

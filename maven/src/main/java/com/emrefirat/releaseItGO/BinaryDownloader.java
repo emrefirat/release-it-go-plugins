@@ -13,6 +13,8 @@ import java.net.URI;
 import java.net.URISyntaxException;
 import java.net.URL;
 import java.nio.charset.StandardCharsets;
+import java.security.MessageDigest;
+import java.security.NoSuchAlgorithmException;
 import java.util.zip.ZipEntry;
 import java.util.zip.ZipInputStream;
 
@@ -24,6 +26,9 @@ public class BinaryDownloader {
 
     private static final String DOWNLOAD_URL_TEMPLATE =
             "https://github.com/emrefirat/release-it-GO/releases/download/v%s/release-it-go_%s_%s_%s";
+
+    private static final String CHECKSUMS_URL_TEMPLATE =
+            "https://github.com/emrefirat/release-it-GO/releases/download/v%s/checksums.txt";
 
     private static final int CONNECT_TIMEOUT_MS = 30_000;
     private static final int READ_TIMEOUT_MS = 120_000;
@@ -81,6 +86,9 @@ public class BinaryDownloader {
         File archiveFile = new File(binDir, "release-it-go" + ext);
         downloadFile(downloadUrl, archiveFile);
 
+        // Verify archive integrity via SHA256 checksum
+        verifyChecksum(archiveFile, version, os, arch, ext);
+
         logger.info("Extracting archive...");
         if ("windows".equals(os)) {
             extractZip(archiveFile, binDir);
@@ -93,7 +101,8 @@ public class BinaryDownloader {
         }
 
         if (!"windows".equals(os)) {
-            if (!binaryFile.setExecutable(true)) {
+            // Owner-only executable to prevent other users from running or replacing
+            if (!binaryFile.setExecutable(true, true)) {
                 logger.warn("Failed to set executable permission on: " + binaryFile.getAbsolutePath());
             }
         }
@@ -153,7 +162,7 @@ public class BinaryDownloader {
                     if (redirectUrl == null || redirectUrl.isEmpty()) {
                         throw new IOException("Redirect with no Location header from: " + currentUrl);
                     }
-                    logger.debug("Following redirect to: " + redirectUrl);
+                    logger.debug("Following redirect to: " + maskUrl(redirectUrl));
                     currentUrl = redirectUrl;
                     continue;
                 }
@@ -231,7 +240,12 @@ public class BinaryDownloader {
         try (ZipInputStream zis = new ZipInputStream(new FileInputStream(archive))) {
             ZipEntry entry;
             while ((entry = zis.getNextEntry()) != null) {
-                if (entry.getName().equals(binaryName) || entry.getName().endsWith("/" + binaryName)) {
+                String entryName = entry.getName();
+                // Reject entries with path traversal sequences
+                if (entryName.contains("..")) {
+                    throw new IOException("Zip entry contains path traversal: " + entryName);
+                }
+                if (entryName.equals(binaryName) || entryName.endsWith("/" + binaryName)) {
                     File outFile = new File(targetDir, binaryName);
                     try (OutputStream out = new FileOutputStream(outFile)) {
                         byte[] buffer = new byte[BUFFER_SIZE];
@@ -250,5 +264,100 @@ public class BinaryDownloader {
         if (!found) {
             throw new IOException("Binary '" + binaryName + "' not found in archive: " + archive.getAbsolutePath());
         }
+    }
+
+    /**
+     * Downloads the checksums file and verifies the archive's SHA256 hash.
+     * If the checksums file is not available (e.g. older releases), logs a warning and continues.
+     */
+    private void verifyChecksum(File archiveFile, String ver, String os, String arch, String ext)
+            throws IOException {
+        String archiveName = String.format("release-it-go_%s_%s_%s%s", ver, os, arch, ext);
+        String checksumsUrl = String.format(CHECKSUMS_URL_TEMPLATE, ver);
+
+        File checksumsFile = new File(binDir, "checksums.txt");
+        try {
+            downloadFile(checksumsUrl, checksumsFile);
+        } catch (IOException e) {
+            logger.warn("Checksums file not available (" + e.getMessage()
+                    + "). Skipping integrity verification — consider upgrading release-it-go.");
+            return;
+        }
+
+        try {
+            String expectedHash = null;
+            for (String line : java.nio.file.Files.readAllLines(checksumsFile.toPath(), StandardCharsets.UTF_8)) {
+                // Format: "sha256hash  filename" (two spaces between hash and name)
+                String trimmed = line.trim();
+                if (trimmed.isEmpty()) {
+                    continue;
+                }
+                String[] parts = trimmed.split("\\s+", 2);
+                if (parts.length == 2 && parts[1].trim().equals(archiveName)) {
+                    expectedHash = parts[0].toLowerCase();
+                    break;
+                }
+            }
+
+            if (expectedHash == null) {
+                logger.warn("No checksum entry found for " + archiveName + " in checksums.txt. Skipping verification.");
+                return;
+            }
+
+            String actualHash = computeSHA256(archiveFile);
+
+            if (!expectedHash.equals(actualHash)) {
+                // Delete the compromised archive immediately
+                archiveFile.delete();
+                throw new IOException(
+                        "SECURITY: SHA256 checksum mismatch for " + archiveName + "!\n"
+                        + "  Expected: " + expectedHash + "\n"
+                        + "  Actual:   " + actualHash + "\n"
+                        + "The downloaded file may have been tampered with. "
+                        + "Aborting to prevent execution of potentially malicious code.");
+            }
+
+            logger.info("SHA256 checksum verified: " + actualHash);
+        } finally {
+            checksumsFile.delete();
+        }
+    }
+
+    /**
+     * Computes the SHA256 hash of a file.
+     */
+    static String computeSHA256(File file) throws IOException {
+        MessageDigest digest;
+        try {
+            digest = MessageDigest.getInstance("SHA-256");
+        } catch (NoSuchAlgorithmException e) {
+            throw new IOException("SHA-256 algorithm not available", e);
+        }
+
+        try (InputStream fis = new FileInputStream(file)) {
+            byte[] buffer = new byte[BUFFER_SIZE];
+            int bytesRead;
+            while ((bytesRead = fis.read(buffer)) != -1) {
+                digest.update(buffer, 0, bytesRead);
+            }
+        }
+
+        byte[] hashBytes = digest.digest();
+        StringBuilder hex = new StringBuilder(hashBytes.length * 2);
+        for (byte b : hashBytes) {
+            hex.append(String.format("%02x", b));
+        }
+        return hex.toString();
+    }
+
+    /**
+     * Masks query string parameters in a URL to prevent leaking signed tokens in logs.
+     */
+    private static String maskUrl(String url) {
+        int queryStart = url.indexOf('?');
+        if (queryStart < 0) {
+            return url;
+        }
+        return url.substring(0, queryStart) + "?[MASKED]";
     }
 }
