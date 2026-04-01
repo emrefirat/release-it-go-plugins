@@ -16,7 +16,7 @@ final class PluginUtils {
             Pattern.compile("^[0-9]+\\.[0-9]+\\.[0-9]+(-[a-zA-Z0-9.]+)?$");
 
     private static final String DEFAULTS_RESOURCE = "release-it-go-defaults.properties";
-    private static final String FALLBACK_VERSION = "0.1.3";
+    private static final String FALLBACK_VERSION = "0.2.0";
 
     private static final String[] CONFIG_FILES = {
             ".release-it-go.yaml", ".release-it-go.yml", ".release-it-go.json", ".release-it-go.toml",
