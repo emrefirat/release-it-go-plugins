@@ -8,8 +8,10 @@ import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
 
+import static org.junit.jupiter.api.Assertions.assertDoesNotThrow;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 /**
@@ -102,5 +104,65 @@ class PluginUtilsTest {
     @Test
     void hasConfigFile_nonExistentDir_returnsFalse() {
         assertFalse(PluginUtils.hasConfigFile(new File("/nonexistent/path")));
+    }
+
+    // --- validateVersion tests ---
+
+    @Test
+    void validateVersion_validSimple() {
+        assertDoesNotThrow(() -> PluginUtils.validateVersion("0.1.3"));
+    }
+
+    @Test
+    void validateVersion_validMajor() {
+        assertDoesNotThrow(() -> PluginUtils.validateVersion("1.0.0"));
+    }
+
+    @Test
+    void validateVersion_validPreRelease() {
+        assertDoesNotThrow(() -> PluginUtils.validateVersion("1.0.0-beta.1"));
+    }
+
+    @Test
+    void validateVersion_validRC() {
+        assertDoesNotThrow(() -> PluginUtils.validateVersion("2.0.0-rc1"));
+    }
+
+    @Test
+    void validateVersion_null_throws() {
+        assertThrows(IllegalArgumentException.class, () -> PluginUtils.validateVersion(null));
+    }
+
+    @Test
+    void validateVersion_empty_throws() {
+        assertThrows(IllegalArgumentException.class, () -> PluginUtils.validateVersion(""));
+    }
+
+    @Test
+    void validateVersion_pathTraversal_throws() {
+        assertThrows(IllegalArgumentException.class,
+                () -> PluginUtils.validateVersion("0.1.0/../../evil-repo/releases/download/v1"));
+    }
+
+    @Test
+    void validateVersion_commandInjection_throws() {
+        assertThrows(IllegalArgumentException.class,
+                () -> PluginUtils.validateVersion("0.1.0; rm -rf /"));
+    }
+
+    @Test
+    void validateVersion_urlEncoded_throws() {
+        assertThrows(IllegalArgumentException.class,
+                () -> PluginUtils.validateVersion("0.1.0%2F..%2F.."));
+    }
+
+    @Test
+    void validateVersion_onlyMajorMinor_throws() {
+        assertThrows(IllegalArgumentException.class, () -> PluginUtils.validateVersion("1.0"));
+    }
+
+    @Test
+    void validateVersion_withVPrefix_throws() {
+        assertThrows(IllegalArgumentException.class, () -> PluginUtils.validateVersion("v1.0.0"));
     }
 }
