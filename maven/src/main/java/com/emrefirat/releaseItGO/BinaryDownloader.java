@@ -181,7 +181,7 @@ public class BinaryDownloader {
      * Uses the system tar command which is available on all supported platforms
      * (Unix natively, Windows 10+ built-in).
      */
-    private void extractTarGz(File archive, File targetDir) throws IOException {
+    void extractTarGz(File archive, File targetDir) throws IOException {
         String binaryName = PlatformDetector.binaryName();
         ProcessBuilder pb = new ProcessBuilder(
                 "tar", "-xzf", archive.getAbsolutePath(), "-C", targetDir.getAbsolutePath(), binaryName
@@ -217,7 +217,7 @@ public class BinaryDownloader {
      * Extracts only the binary from a .zip archive to the given target directory.
      * Uses Java's built-in ZipInputStream for cross-platform compatibility.
      */
-    private void extractZip(File archive, File targetDir) throws IOException {
+    void extractZip(File archive, File targetDir) throws IOException {
         String binaryName = PlatformDetector.binaryName();
         boolean found = false;
 

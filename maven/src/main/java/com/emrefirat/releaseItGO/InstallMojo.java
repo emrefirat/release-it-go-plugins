@@ -179,7 +179,7 @@ public class InstallMojo extends AbstractMojo {
      * Extracts a clean version string by stripping any "v" prefix and non-version text.
      * For example: "release-it-go version 0.1.3" → "0.1.3", "v0.1.3" → "0.1.3"
      */
-    private String normalizeVersion(String raw) {
+    static String normalizeVersion(String raw) {
         if (raw == null) {
             return "";
         }
@@ -199,7 +199,7 @@ public class InstallMojo extends AbstractMojo {
     /**
      * Checks if a release-it-go config file exists in the project directory.
      */
-    private boolean hasConfigFile(File baseDir) {
+    static boolean hasConfigFile(File baseDir) {
         String[] configFiles = {
                 ".release-it-go.yaml", ".release-it-go.yml", ".release-it-go.json", ".release-it-go.toml",
                 ".release-it.yaml", ".release-it.yml", ".release-it.json", ".release-it.toml"
