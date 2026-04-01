@@ -24,6 +24,7 @@ public class BinaryDownloader {
     private static final int CONNECT_TIMEOUT_MS = 30_000;
     private static final int READ_TIMEOUT_MS = 120_000;
     private static final int BUFFER_SIZE = 8192;
+    private static final int MAX_REDIRECTS = 5;
 
     private final Log logger;
     private final String version;
@@ -60,8 +61,8 @@ public class BinaryDownloader {
         File binaryFile = new File(binDir, binaryName);
 
         // Remove old binary if exists (caller handles version check)
-        if (binaryFile.exists()) {
-            binaryFile.delete();
+        if (binaryFile.exists() && !binaryFile.delete()) {
+            throw new IOException("Failed to delete existing binary: " + binaryFile.getAbsolutePath());
         }
 
         if (!binDir.exists() && !binDir.mkdirs()) {
@@ -77,7 +78,11 @@ public class BinaryDownloader {
         downloadFile(downloadUrl, archiveFile);
 
         logger.info("Extracting archive...");
-        extractTarGz(archiveFile, binDir);
+        if ("windows".equals(os)) {
+            extractZip(archiveFile, binDir);
+        } else {
+            extractTarGz(archiveFile, binDir);
+        }
 
         if (!archiveFile.delete()) {
             logger.warn("Failed to delete archive: " + archiveFile.getAbsolutePath());
@@ -99,58 +104,75 @@ public class BinaryDownloader {
 
     /**
      * Downloads a file from the given URL to the target file.
-     * Follows HTTP redirects automatically.
+     * Follows HTTP redirects manually with a depth limit.
+     * Authorization header is only sent to the original host to prevent token leakage on redirects.
      */
     private void downloadFile(String urlString, File target) throws IOException {
-        URL url;
-        try {
-            url = new URI(urlString).toURL();
-        } catch (URISyntaxException e) {
-            throw new IOException("Invalid URL: " + urlString, e);
-        }
-        HttpURLConnection connection = (HttpURLConnection) url.openConnection();
-        connection.setInstanceFollowRedirects(true);
-        connection.setConnectTimeout(CONNECT_TIMEOUT_MS);
-        connection.setReadTimeout(READ_TIMEOUT_MS);
-        connection.setRequestProperty("Accept", "application/octet-stream");
-        if (token != null && !token.isEmpty()) {
-            connection.setRequestProperty("Authorization", "Bearer " + token);
-        }
+        String originalHost = null;
+        String currentUrl = urlString;
 
-        try {
-            int responseCode = connection.getResponseCode();
+        for (int redirectCount = 0; ; redirectCount++) {
+            if (redirectCount > MAX_REDIRECTS) {
+                throw new IOException("Too many redirects (max " + MAX_REDIRECTS + ") from: " + urlString);
+            }
 
-            // Handle GitHub redirects (302 -> S3)
-            if (responseCode == HttpURLConnection.HTTP_MOVED_TEMP
-                    || responseCode == HttpURLConnection.HTTP_MOVED_PERM
-                    || responseCode == 307) {
-                String redirectUrl = connection.getHeaderField("Location");
-                connection.disconnect();
-                if (redirectUrl == null || redirectUrl.isEmpty()) {
-                    throw new IOException("Redirect with no Location header from: " + urlString);
+            URL url;
+            try {
+                url = new URI(currentUrl).toURL();
+            } catch (URISyntaxException e) {
+                throw new IOException("Invalid URL: " + currentUrl, e);
+            }
+
+            if (originalHost == null) {
+                originalHost = url.getHost();
+            }
+
+            HttpURLConnection connection = (HttpURLConnection) url.openConnection();
+            connection.setInstanceFollowRedirects(false);
+            connection.setConnectTimeout(CONNECT_TIMEOUT_MS);
+            connection.setReadTimeout(READ_TIMEOUT_MS);
+            connection.setRequestProperty("Accept", "application/octet-stream");
+
+            // Only send auth token to the original host to prevent leakage on redirects
+            if (token != null && !token.isEmpty() && url.getHost().equals(originalHost)) {
+                connection.setRequestProperty("Authorization", "Bearer " + token);
+            }
+
+            try {
+                int responseCode = connection.getResponseCode();
+
+                if (responseCode == HttpURLConnection.HTTP_MOVED_TEMP
+                        || responseCode == HttpURLConnection.HTTP_MOVED_PERM
+                        || responseCode == 307) {
+                    String redirectUrl = connection.getHeaderField("Location");
+                    connection.disconnect();
+                    if (redirectUrl == null || redirectUrl.isEmpty()) {
+                        throw new IOException("Redirect with no Location header from: " + currentUrl);
+                    }
+                    logger.debug("Following redirect to: " + redirectUrl);
+                    currentUrl = redirectUrl;
+                    continue;
                 }
-                logger.debug("Following redirect to: " + redirectUrl);
-                downloadFile(redirectUrl, target);
+
+                if (responseCode != HttpURLConnection.HTTP_OK) {
+                    throw new IOException("HTTP " + responseCode + " when downloading " + currentUrl);
+                }
+
+                try (InputStream in = connection.getInputStream();
+                     OutputStream out = new FileOutputStream(target)) {
+                    byte[] buffer = new byte[BUFFER_SIZE];
+                    int bytesRead;
+                    long totalBytes = 0;
+                    while ((bytesRead = in.read(buffer)) != -1) {
+                        out.write(buffer, 0, bytesRead);
+                        totalBytes += bytesRead;
+                    }
+                    logger.info("Downloaded " + (totalBytes / 1024) + " KB");
+                }
                 return;
+            } finally {
+                connection.disconnect();
             }
-
-            if (responseCode != HttpURLConnection.HTTP_OK) {
-                throw new IOException("HTTP " + responseCode + " when downloading " + urlString);
-            }
-
-            try (InputStream in = connection.getInputStream();
-                 OutputStream out = new FileOutputStream(target)) {
-                byte[] buffer = new byte[BUFFER_SIZE];
-                int bytesRead;
-                long totalBytes = 0;
-                while ((bytesRead = in.read(buffer)) != -1) {
-                    out.write(buffer, 0, bytesRead);
-                    totalBytes += bytesRead;
-                }
-                logger.info("Downloaded " + (totalBytes / 1024) + " KB");
-            }
-        } finally {
-            connection.disconnect();
         }
     }
 
@@ -188,6 +210,39 @@ public class BinaryDownloader {
 
         if (exitCode != 0) {
             throw new IOException("tar extraction failed (exit code " + exitCode + "): " + output);
+        }
+    }
+
+    /**
+     * Extracts only the binary from a .zip archive to the given target directory.
+     * Uses Java's built-in ZipInputStream for cross-platform compatibility.
+     */
+    private void extractZip(File archive, File targetDir) throws IOException {
+        String binaryName = PlatformDetector.binaryName();
+        boolean found = false;
+
+        try (java.util.zip.ZipInputStream zis = new java.util.zip.ZipInputStream(
+                new java.io.FileInputStream(archive))) {
+            java.util.zip.ZipEntry entry;
+            while ((entry = zis.getNextEntry()) != null) {
+                if (entry.getName().equals(binaryName) || entry.getName().endsWith("/" + binaryName)) {
+                    File outFile = new File(targetDir, binaryName);
+                    try (OutputStream out = new FileOutputStream(outFile)) {
+                        byte[] buffer = new byte[BUFFER_SIZE];
+                        int bytesRead;
+                        while ((bytesRead = zis.read(buffer)) != -1) {
+                            out.write(buffer, 0, bytesRead);
+                        }
+                    }
+                    found = true;
+                    break;
+                }
+                zis.closeEntry();
+            }
+        }
+
+        if (!found) {
+            throw new IOException("Binary '" + binaryName + "' not found in archive: " + archive.getAbsolutePath());
         }
     }
 }
