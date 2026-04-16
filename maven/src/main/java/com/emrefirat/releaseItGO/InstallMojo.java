@@ -22,7 +22,7 @@ import java.util.concurrent.TimeUnit;
  * <plugin>
  *     <groupId>com.emrefirat</groupId>
  *     <artifactId>release-it-go-maven-plugin</artifactId>
- *     <version>1.2.0</version>
+ *     <version>1.2.1</version>
  *     <configuration>
  *         <version>0.1.0</version>
  *     </configuration>
