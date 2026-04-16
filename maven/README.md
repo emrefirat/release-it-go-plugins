@@ -10,7 +10,7 @@ Add the plugin to your `pom.xml`:
 <plugin>
     <groupId>com.emrefirat</groupId>
     <artifactId>release-it-go-maven-plugin</artifactId>
-    <version>1.1.2</version>
+    <version>1.2.0</version>
     <!-- version is optional — defaults to the bundled version (currently 0.2.0) -->
     <!-- <configuration><version>0.2.0</version></configuration> -->
     <executions>

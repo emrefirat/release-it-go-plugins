@@ -22,7 +22,7 @@ import java.util.concurrent.TimeUnit;
  * <plugin>
  *     <groupId>com.emrefirat</groupId>
  *     <artifactId>release-it-go-maven-plugin</artifactId>
- *     <version>1.1.2</version>
+ *     <version>1.2.0</version>
  *     <configuration>
  *         <version>0.1.0</version>
  *     </configuration>
@@ -71,6 +71,13 @@ public class InstallMojo extends AbstractMojo {
     public void execute() throws MojoExecutionException, MojoFailureException {
         if (skip) {
             getLog().info("release-it-go plugin execution skipped");
+            return;
+        }
+
+        // Auto-skip in CI environments — hooks install is only needed locally
+        String ciEnv = System.getenv("CI");
+        if ("true".equalsIgnoreCase(ciEnv)) {
+            getLog().info("CI environment detected (CI=true), skipping hook installation");
             return;
         }
 

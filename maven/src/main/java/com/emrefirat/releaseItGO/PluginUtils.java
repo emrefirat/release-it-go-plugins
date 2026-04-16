@@ -23,7 +23,8 @@ final class PluginUtils {
 
     private static final String[] GITIGNORE_ENTRIES = {
             "release-it-go",
-            "release-it-go.exe"
+            "release-it-go.exe",
+            ".hooks/"
     };
 
     private static final String[] CONFIG_FILES = {

@@ -239,6 +239,7 @@ class PluginUtilsTest {
         String content = new String(Files.readAllBytes(gitignore.toPath()), StandardCharsets.UTF_8);
         assertTrue(content.contains("release-it-go"));
         assertTrue(content.contains("release-it-go.exe"));
+        assertTrue(content.contains(".hooks/"));
     }
 
     @Test
@@ -252,13 +253,14 @@ class PluginUtilsTest {
         assertTrue(content.startsWith("target/\n*.class\n"));
         assertTrue(content.contains("release-it-go"));
         assertTrue(content.contains("release-it-go.exe"));
+        assertTrue(content.contains(".hooks/"));
     }
 
     @Test
     void ensureGitignore_alreadyPresent_returnsFalse(@TempDir Path tempDir) throws IOException {
         File gitignore = tempDir.resolve(".gitignore").toFile();
         Files.write(gitignore.toPath(),
-                "target/\n# release-it-go binary\nrelease-it-go\nrelease-it-go.exe\n".getBytes(StandardCharsets.UTF_8));
+                "target/\n# release-it-go binary\nrelease-it-go\nrelease-it-go.exe\n.hooks/\n".getBytes(StandardCharsets.UTF_8));
 
         assertFalse(PluginUtils.ensureGitignore(tempDir.toFile()));
     }
