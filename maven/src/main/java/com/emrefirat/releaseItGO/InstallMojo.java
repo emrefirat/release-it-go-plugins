@@ -75,8 +75,7 @@ public class InstallMojo extends AbstractMojo {
         }
 
         // Auto-skip in CI environments — hooks install is only needed locally
-        String ciEnv = System.getenv("CI");
-        if ("true".equalsIgnoreCase(ciEnv)) {
+        if (PluginUtils.isCiEnvironment()) {
             getLog().info("CI environment detected (CI=true), skipping hook installation");
             return;
         }

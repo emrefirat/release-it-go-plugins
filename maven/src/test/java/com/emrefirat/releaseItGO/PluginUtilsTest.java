@@ -319,4 +319,48 @@ class PluginUtilsTest {
     void getDefaultVersion_nullReasonList_doesNotThrow() {
         assertDoesNotThrow(() -> PluginUtils.getDefaultVersion(null));
     }
+
+    // --- isCiEnvironment tests ---
+
+    @Test
+    void isCiEnvironment_trueValue_returnsTrue() {
+        assertTrue(PluginUtils.isCiEnvironment("true"));
+    }
+
+    @Test
+    void isCiEnvironment_trueUppercase_returnsTrue() {
+        assertTrue(PluginUtils.isCiEnvironment("TRUE"));
+    }
+
+    @Test
+    void isCiEnvironment_trueMixedCase_returnsTrue() {
+        assertTrue(PluginUtils.isCiEnvironment("True"));
+    }
+
+    @Test
+    void isCiEnvironment_false_returnsFalse() {
+        assertFalse(PluginUtils.isCiEnvironment("false"));
+    }
+
+    @Test
+    void isCiEnvironment_empty_returnsFalse() {
+        assertFalse(PluginUtils.isCiEnvironment(""));
+    }
+
+    @Test
+    void isCiEnvironment_null_returnsFalse() {
+        assertFalse(PluginUtils.isCiEnvironment(null));
+    }
+
+    @Test
+    void isCiEnvironment_numericOne_returnsFalse() {
+        // Only "true" is accepted (case-insensitive), not "1" or other values
+        assertFalse(PluginUtils.isCiEnvironment("1"));
+    }
+
+    @Test
+    void isCiEnvironment_noArgOverload_doesNotThrow() {
+        // Reads actual env var; just verify it doesn't throw
+        assertDoesNotThrow(() -> PluginUtils.isCiEnvironment());
+    }
 }

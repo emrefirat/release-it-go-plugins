@@ -186,3 +186,74 @@ Test job'ina OS matrix eklendi: `ubuntu-latest`, `macos-latest`, `windows-latest
 
 **Test sayisi:** 76 → 93 (+17 yeni test)
 **Build durumu:** SUCCESS
+
+---
+
+# Ikinci Tur Review (2026-04-16)
+
+> **Tarih:** 2026-04-16
+> **Kapsam:** CI skip + .hooks/ gitignore ozelliklerinden sonra
+
+---
+
+## Yuksek — Saglamlik
+
+### YU1. `extractTarGz` hala blocking I/O sorununa sahip
+
+- **Dosya:** `BinaryDownloader.java`
+- **Durum:** [x] Cozuldu
+
+`redirectOutput(File)` pattern'i uygulandi. Process output temp file'a yonlendirilir, `waitFor(timeout)` cagrilir, sadece hata durumunda dosya okunur. K4 ile tutarli.
+
+---
+
+### YU2. `.bak` dosyasi proje dizininde — JVM crash'te repoda kalabilir
+
+- **Dosya:** `BinaryDownloader.java`
+- **Durum:** [x] Cozuldu
+
+Yedek dosyasi `File.createTempFile()` ile sistem temp dizinine alindi. `Files.move(..., REPLACE_EXISTING)` ile tasinir. Proje dizininde `.bak` hic olmaz, commit riski sifir.
+
+---
+
+### YU3. Windows'ta `.bak` collision
+
+- **Dosya:** `BinaryDownloader.java`
+- **Durum:** [x] Cozuldu
+
+`Files.move(..., REPLACE_EXISTING)` kullaniliyor. Windows ve Unix'te tutarli davranir.
+
+---
+
+## Orta — Test Eksikligi
+
+### YU4. CI skip icin test yok
+
+- **Dosya:** `PluginUtils.java`, `PluginUtilsTest.java`
+- **Durum:** [x] Cozuldu
+
+Mantik `PluginUtils.isCiEnvironment()` static metoduna cikarildi. 8 test eklendi: true/TRUE/True, false, empty, null, numeric "1", no-arg overload.
+
+---
+
+## Dusuk — Kod Kalitesi
+
+### YU5. `archiveFile` proje dizininde ve finally disinda
+
+- **Dosya:** `BinaryDownloader.java`
+- **Durum:** [x] Cozuldu (genisletildi)
+
+Archive `File.createTempFile` ile sistem temp dizinine alindi. Delete cagrisi `finally` blogunda, `deleteOnExit` fallback ile. Proje dizini her zaman temiz kalir.
+
+---
+
+## Ozet — Ikinci Tur
+
+| Kategori | Toplam | Cozuldu | Acik |
+|----------|--------|---------|------|
+| Yuksek (YU) | 3 | 3 | 0 |
+| Orta (YU) | 1 | 1 | 0 |
+| Dusuk (YU) | 1 | 1 | 0 |
+
+**Test sayisi:** 93 → 101 (+8 yeni test)
+**Build durumu:** SUCCESS

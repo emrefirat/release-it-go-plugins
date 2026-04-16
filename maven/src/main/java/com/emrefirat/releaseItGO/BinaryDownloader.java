@@ -13,6 +13,8 @@ import java.net.URI;
 import java.net.URISyntaxException;
 import java.net.URL;
 import java.nio.charset.StandardCharsets;
+import java.nio.file.Files;
+import java.nio.file.StandardCopyOption;
 import java.security.MessageDigest;
 import java.security.NoSuchAlgorithmException;
 import java.util.concurrent.TimeUnit;
@@ -78,23 +80,29 @@ public class BinaryDownloader {
             throw new IOException("Failed to create binary directory");
         }
 
-        // Backup existing binary so we can restore it if download fails
+        // Backup existing binary to system temp dir so .bak never enters the project directory.
+        // This ensures the backup is never accidentally committed even if the JVM crashes.
         File backupFile = null;
         if (binaryFile.exists()) {
-            backupFile = new File(binDir, binaryName + ".bak");
-            if (!binaryFile.renameTo(backupFile)) {
-                throw new IOException("Failed to backup existing binary: " + binaryFile.getName());
+            backupFile = File.createTempFile(binaryName + "-", ".bak");
+            try {
+                Files.move(binaryFile.toPath(), backupFile.toPath(), StandardCopyOption.REPLACE_EXISTING);
+            } catch (IOException e) {
+                backupFile.delete();
+                throw new IOException("Failed to backup existing binary: " + binaryFile.getName(), e);
             }
         }
 
         boolean success = false;
+        // Archive lives in system temp dir so it never ends up in the project directory,
+        // even if the JVM crashes between download and extract.
+        String ext = "windows".equals(os) ? ".zip" : ".tar.gz";
+        File archiveFile = File.createTempFile("release-it-go-", ext);
         try {
-            String ext = "windows".equals(os) ? ".zip" : ".tar.gz";
             String downloadUrl = String.format(DOWNLOAD_URL_TEMPLATE + ext, version, version, os, arch);
             logger.info("Downloading release-it-go v" + version + " for " + os + "/" + arch);
             logger.info("URL: " + downloadUrl);
 
-            File archiveFile = new File(binDir, "release-it-go" + ext);
             downloadFile(downloadUrl, archiveFile);
 
             // Verify archive integrity via SHA256 checksum
@@ -105,10 +113,6 @@ public class BinaryDownloader {
                 extractZip(archiveFile, binDir);
             } else {
                 extractTarGz(archiveFile, binDir);
-            }
-
-            if (!archiveFile.delete()) {
-                logger.warn("Failed to delete archive: " + archiveFile.getName());
             }
 
             if (!"windows".equals(os)) {
@@ -126,22 +130,23 @@ public class BinaryDownloader {
             logger.info("Binary installed: " + binaryFile.getName());
             return binaryFile;
         } finally {
+            // Always clean up archive from temp dir
+            if (!archiveFile.delete() && archiveFile.exists()) {
+                archiveFile.deleteOnExit();
+            }
             if (backupFile != null) {
                 if (success) {
-                    // Download succeeded — remove backup
+                    // Download succeeded — remove backup from temp dir
                     if (!backupFile.delete() && backupFile.exists()) {
                         backupFile.deleteOnExit();
                     }
                 } else {
-                    // Download failed — restore backup
-                    if (binaryFile.exists()) {
-                        binaryFile.delete();
-                    }
-                    if (backupFile.renameTo(binaryFile)) {
+                    // Download failed — restore backup from temp dir
+                    try {
+                        Files.move(backupFile.toPath(), binaryFile.toPath(), StandardCopyOption.REPLACE_EXISTING);
                         logger.info("Restored previous binary after download failure");
-                    } else {
-                        // Restore failed — force cleanup so .bak never stays in repo
-                        logger.warn("Could not restore backup, cleaning up");
+                    } catch (IOException restoreEx) {
+                        logger.warn("Could not restore backup: " + restoreEx.getMessage());
                         if (!backupFile.delete() && backupFile.exists()) {
                             backupFile.deleteOnExit();
                         }
@@ -232,22 +237,16 @@ public class BinaryDownloader {
      */
     void extractTarGz(File archive, File targetDir) throws IOException {
         String binaryName = PlatformDetector.binaryName();
-        ProcessBuilder pb = new ProcessBuilder(
-                "tar", "-xzf", archive.getAbsolutePath(), "-C", targetDir.getAbsolutePath(), binaryName
-        );
-        pb.redirectErrorStream(true);
-
-        Process process = pb.start();
+        File outputFile = File.createTempFile("release-it-go-tar-", ".log");
+        Process process = null;
         try {
-            // Read output to prevent process from blocking
-            StringBuilder output = new StringBuilder();
-            try (InputStream is = process.getInputStream()) {
-                byte[] buffer = new byte[BUFFER_SIZE];
-                int bytesRead;
-                while ((bytesRead = is.read(buffer)) != -1) {
-                    output.append(new String(buffer, 0, bytesRead, StandardCharsets.UTF_8));
-                }
-            }
+            ProcessBuilder pb = new ProcessBuilder(
+                    "tar", "-xzf", archive.getAbsolutePath(), "-C", targetDir.getAbsolutePath(), binaryName
+            );
+            pb.redirectErrorStream(true);
+            pb.redirectOutput(outputFile);
+
+            process = pb.start();
 
             boolean finished;
             try {
@@ -264,6 +263,7 @@ public class BinaryDownloader {
 
             int exitCode = process.exitValue();
             if (exitCode != 0) {
+                String output = new String(Files.readAllBytes(outputFile.toPath()), StandardCharsets.UTF_8);
                 throw new IOException("tar extraction failed (exit code " + exitCode + "): " + output);
             }
 
@@ -279,7 +279,10 @@ public class BinaryDownloader {
                 }
             }
         } finally {
-            process.destroyForcibly();
+            if (process != null) {
+                process.destroyForcibly();
+            }
+            outputFile.delete();
         }
     }
 

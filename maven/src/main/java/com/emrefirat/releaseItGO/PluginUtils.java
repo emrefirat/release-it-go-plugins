@@ -37,6 +37,21 @@ final class PluginUtils {
     }
 
     /**
+     * Checks if the current environment is a CI system.
+     * Most modern CI systems set CI=true (GitHub Actions, GitLab CI, Travis, CircleCI, etc.).
+     */
+    static boolean isCiEnvironment() {
+        return isCiEnvironment(System.getenv("CI"));
+    }
+
+    /**
+     * Package-private overload for testing with explicit env var value.
+     */
+    static boolean isCiEnvironment(String ciEnvValue) {
+        return "true".equalsIgnoreCase(ciEnvValue);
+    }
+
+    /**
      * Checks if a release-it-go config file exists in the given directory.
      */
     static boolean hasConfigFile(File baseDir) {
