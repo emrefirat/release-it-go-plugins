@@ -60,6 +60,12 @@ class PlatformDetectorTest {
     }
 
     @Test
+    void detectOS_winSubstring_doesNotMatchAsWindows() {
+        // "win" substring should not match non-Windows OS names
+        assertThrows(IllegalStateException.class, () -> PlatformDetector.detectOS("Wintendo"));
+    }
+
+    @Test
     void detectOS_unsupported_throwsException() {
         assertThrows(IllegalStateException.class, () -> PlatformDetector.detectOS("FreeBSD"));
     }

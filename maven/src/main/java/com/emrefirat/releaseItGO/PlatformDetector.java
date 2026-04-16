@@ -38,7 +38,7 @@ public final class PlatformDetector {
         if (name.contains("linux")) {
             return "linux";
         }
-        if (name.contains("windows") || name.contains("win")) {
+        if (name.contains("windows")) {
             return "windows";
         }
         throw new IllegalStateException("Unsupported operating system: " + osName);

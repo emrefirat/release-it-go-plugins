@@ -15,6 +15,7 @@ import java.net.URL;
 import java.nio.charset.StandardCharsets;
 import java.security.MessageDigest;
 import java.security.NoSuchAlgorithmException;
+import java.util.concurrent.TimeUnit;
 import java.util.zip.ZipEntry;
 import java.util.zip.ZipInputStream;
 
@@ -34,6 +35,7 @@ public class BinaryDownloader {
     private static final int READ_TIMEOUT_MS = 120_000;
     private static final int BUFFER_SIZE = 8192;
     private static final int MAX_REDIRECTS = 5;
+    private static final long EXTRACT_TIMEOUT_SECONDS = 60;
 
     private final Log logger;
     private final String version;
@@ -72,50 +74,81 @@ public class BinaryDownloader {
 
         File binaryFile = new File(binDir, binaryName);
 
-        // Remove old binary if exists (caller handles version check)
-        if (binaryFile.exists() && !binaryFile.delete()) {
-            throw new IOException("Failed to delete existing binary: " + binaryFile.getName());
-        }
-
         if (!binDir.exists() && !binDir.mkdirs()) {
             throw new IOException("Failed to create binary directory");
         }
 
-        String ext = "windows".equals(os) ? ".zip" : ".tar.gz";
-        String downloadUrl = String.format(DOWNLOAD_URL_TEMPLATE + ext, version, version, os, arch);
-        logger.info("Downloading release-it-go v" + version + " for " + os + "/" + arch);
-        logger.info("URL: " + downloadUrl);
-
-        File archiveFile = new File(binDir, "release-it-go" + ext);
-        downloadFile(downloadUrl, archiveFile);
-
-        // Verify archive integrity via SHA256 checksum
-        verifyChecksum(archiveFile, version, os, arch, ext);
-
-        logger.info("Extracting archive...");
-        if ("windows".equals(os)) {
-            extractZip(archiveFile, binDir);
-        } else {
-            extractTarGz(archiveFile, binDir);
-        }
-
-        if (!archiveFile.delete()) {
-            logger.warn("Failed to delete archive: " + archiveFile.getName());
-        }
-
-        if (!"windows".equals(os)) {
-            // Owner-only executable to prevent other users from running or replacing
-            if (!binaryFile.setExecutable(true, true)) {
-                logger.warn("Failed to set executable permission on binary");
+        // Backup existing binary so we can restore it if download fails
+        File backupFile = null;
+        if (binaryFile.exists()) {
+            backupFile = new File(binDir, binaryName + ".bak");
+            if (!binaryFile.renameTo(backupFile)) {
+                throw new IOException("Failed to backup existing binary: " + binaryFile.getName());
             }
         }
 
-        if (!binaryFile.exists()) {
-            throw new IOException("Binary not found after extraction: " + binaryFile.getName());
-        }
+        boolean success = false;
+        try {
+            String ext = "windows".equals(os) ? ".zip" : ".tar.gz";
+            String downloadUrl = String.format(DOWNLOAD_URL_TEMPLATE + ext, version, version, os, arch);
+            logger.info("Downloading release-it-go v" + version + " for " + os + "/" + arch);
+            logger.info("URL: " + downloadUrl);
 
-        logger.info("Binary installed: " + binaryFile.getName());
-        return binaryFile;
+            File archiveFile = new File(binDir, "release-it-go" + ext);
+            downloadFile(downloadUrl, archiveFile);
+
+            // Verify archive integrity via SHA256 checksum
+            verifyChecksum(archiveFile, version, os, arch, ext);
+
+            logger.info("Extracting archive...");
+            if ("windows".equals(os)) {
+                extractZip(archiveFile, binDir);
+            } else {
+                extractTarGz(archiveFile, binDir);
+            }
+
+            if (!archiveFile.delete()) {
+                logger.warn("Failed to delete archive: " + archiveFile.getName());
+            }
+
+            if (!"windows".equals(os)) {
+                // Owner-only executable to prevent other users from running or replacing
+                if (!binaryFile.setExecutable(true, true)) {
+                    logger.warn("Failed to set executable permission on binary");
+                }
+            }
+
+            if (!binaryFile.exists()) {
+                throw new IOException("Binary not found after extraction: " + binaryFile.getName());
+            }
+
+            success = true;
+            logger.info("Binary installed: " + binaryFile.getName());
+            return binaryFile;
+        } finally {
+            if (backupFile != null) {
+                if (success) {
+                    // Download succeeded — remove backup
+                    if (!backupFile.delete() && backupFile.exists()) {
+                        backupFile.deleteOnExit();
+                    }
+                } else {
+                    // Download failed — restore backup
+                    if (binaryFile.exists()) {
+                        binaryFile.delete();
+                    }
+                    if (backupFile.renameTo(binaryFile)) {
+                        logger.info("Restored previous binary after download failure");
+                    } else {
+                        // Restore failed — force cleanup so .bak never stays in repo
+                        logger.warn("Could not restore backup, cleaning up");
+                        if (!backupFile.delete() && backupFile.exists()) {
+                            backupFile.deleteOnExit();
+                        }
+                    }
+                }
+            }
+        }
     }
 
     /**
@@ -216,16 +249,34 @@ public class BinaryDownloader {
                 }
             }
 
-            int exitCode;
+            boolean finished;
             try {
-                exitCode = process.waitFor();
+                finished = process.waitFor(EXTRACT_TIMEOUT_SECONDS, TimeUnit.SECONDS);
             } catch (InterruptedException e) {
                 Thread.currentThread().interrupt();
                 throw new IOException("Extraction interrupted", e);
             }
 
+            if (!finished) {
+                process.destroyForcibly();
+                throw new IOException("tar extraction timed out after " + EXTRACT_TIMEOUT_SECONDS + " seconds");
+            }
+
+            int exitCode = process.exitValue();
             if (exitCode != 0) {
                 throw new IOException("tar extraction failed (exit code " + exitCode + "): " + output);
+            }
+
+            // Path traversal defense: verify extracted binary is inside target directory
+            File extractedBinary = new File(targetDir, binaryName);
+            if (extractedBinary.exists()) {
+                String canonicalTarget = targetDir.getCanonicalPath();
+                String canonicalBinary = extractedBinary.getCanonicalPath();
+                if (!canonicalBinary.startsWith(canonicalTarget + File.separator)
+                        && !canonicalBinary.equals(canonicalTarget)) {
+                    extractedBinary.delete();
+                    throw new IOException("Extracted binary path traversal detected: " + canonicalBinary);
+                }
             }
         } finally {
             process.destroyForcibly();
@@ -294,19 +345,9 @@ public class BinaryDownloader {
         }
 
         try {
-            String expectedHash = null;
-            for (String line : java.nio.file.Files.readAllLines(checksumsFile.toPath(), StandardCharsets.UTF_8)) {
-                // Format: "sha256hash  filename" (two spaces between hash and name)
-                String trimmed = line.trim();
-                if (trimmed.isEmpty()) {
-                    continue;
-                }
-                String[] parts = trimmed.split("\\s+", 2);
-                if (parts.length == 2 && parts[1].trim().equals(archiveName)) {
-                    expectedHash = parts[0].toLowerCase();
-                    break;
-                }
-            }
+            String checksumContent = new String(
+                    java.nio.file.Files.readAllBytes(checksumsFile.toPath()), StandardCharsets.UTF_8);
+            String expectedHash = parseExpectedHash(checksumContent, archiveName);
 
             if (expectedHash == null) {
                 if (strictChecksum) {
@@ -333,7 +374,10 @@ public class BinaryDownloader {
 
             logger.info("SHA256 checksum verified: " + actualHash);
         } finally {
-            checksumsFile.delete();
+            if (!checksumsFile.delete() && checksumsFile.exists()) {
+                checksumsFile.deleteOnExit();
+                logger.warn("Could not delete checksums.txt, scheduled for cleanup on JVM exit");
+            }
         }
     }
 
@@ -362,6 +406,31 @@ public class BinaryDownloader {
             hex.append(String.format("%02x", b));
         }
         return hex.toString();
+    }
+
+    /**
+     * Parses the expected SHA256 hash for a given archive name from checksums file content.
+     * Format: "sha256hash  filename" (whitespace separated).
+     *
+     * @param checksumContent the full content of the checksums.txt file
+     * @param archiveName the archive filename to look up
+     * @return the lowercase hex hash, or null if not found
+     */
+    static String parseExpectedHash(String checksumContent, String archiveName) {
+        if (checksumContent == null || archiveName == null) {
+            return null;
+        }
+        for (String line : checksumContent.split("\\r?\\n")) {
+            String trimmed = line.trim();
+            if (trimmed.isEmpty()) {
+                continue;
+            }
+            String[] parts = trimmed.split("\\s+", 2);
+            if (parts.length == 2 && parts[1].trim().equals(archiveName)) {
+                return parts[0].toLowerCase();
+            }
+        }
+        return null;
     }
 
     /**

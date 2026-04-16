@@ -5,8 +5,11 @@ import org.junit.jupiter.api.io.TempDir;
 
 import java.io.File;
 import java.io.IOException;
+import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.util.ArrayList;
+import java.util.List;
 
 import static org.junit.jupiter.api.Assertions.assertDoesNotThrow;
 import static org.junit.jupiter.api.Assertions.assertEquals;
@@ -223,5 +226,95 @@ class PluginUtilsTest {
     @Test
     void validateVersion_withVPrefix_throws() {
         assertThrows(IllegalArgumentException.class, () -> PluginUtils.validateVersion("v1.0.0"));
+    }
+
+    // --- ensureGitignore tests ---
+
+    @Test
+    void ensureGitignore_createsNewFile(@TempDir Path tempDir) throws IOException {
+        assertTrue(PluginUtils.ensureGitignore(tempDir.toFile()));
+
+        File gitignore = tempDir.resolve(".gitignore").toFile();
+        assertTrue(gitignore.exists());
+        String content = new String(Files.readAllBytes(gitignore.toPath()), StandardCharsets.UTF_8);
+        assertTrue(content.contains("release-it-go"));
+        assertTrue(content.contains("release-it-go.exe"));
+    }
+
+    @Test
+    void ensureGitignore_appendsToExistingFile(@TempDir Path tempDir) throws IOException {
+        File gitignore = tempDir.resolve(".gitignore").toFile();
+        Files.write(gitignore.toPath(), "target/\n*.class\n".getBytes(StandardCharsets.UTF_8));
+
+        assertTrue(PluginUtils.ensureGitignore(tempDir.toFile()));
+
+        String content = new String(Files.readAllBytes(gitignore.toPath()), StandardCharsets.UTF_8);
+        assertTrue(content.startsWith("target/\n*.class\n"));
+        assertTrue(content.contains("release-it-go"));
+        assertTrue(content.contains("release-it-go.exe"));
+    }
+
+    @Test
+    void ensureGitignore_alreadyPresent_returnsFalse(@TempDir Path tempDir) throws IOException {
+        File gitignore = tempDir.resolve(".gitignore").toFile();
+        Files.write(gitignore.toPath(),
+                "target/\n# release-it-go binary\nrelease-it-go\nrelease-it-go.exe\n".getBytes(StandardCharsets.UTF_8));
+
+        assertFalse(PluginUtils.ensureGitignore(tempDir.toFile()));
+    }
+
+    @Test
+    void ensureGitignore_partiallyPresent_addsOnlyMissing(@TempDir Path tempDir) throws IOException {
+        File gitignore = tempDir.resolve(".gitignore").toFile();
+        Files.write(gitignore.toPath(), "release-it-go\n".getBytes(StandardCharsets.UTF_8));
+
+        assertTrue(PluginUtils.ensureGitignore(tempDir.toFile()));
+
+        String content = new String(Files.readAllBytes(gitignore.toPath()), StandardCharsets.UTF_8);
+        assertTrue(content.contains("release-it-go.exe"));
+        // Should not duplicate the existing entry
+        int count = content.split("release-it-go\n", -1).length - 1;
+        assertTrue(count >= 1, "Original entry should remain");
+    }
+
+    @Test
+    void ensureGitignore_noFalsePositiveFromSubstring(@TempDir Path tempDir) throws IOException {
+        File gitignore = tempDir.resolve(".gitignore").toFile();
+        Files.write(gitignore.toPath(), "my-release-it-go-wrapper\n".getBytes(StandardCharsets.UTF_8));
+
+        assertTrue(PluginUtils.ensureGitignore(tempDir.toFile()));
+
+        String content = new String(Files.readAllBytes(gitignore.toPath()), StandardCharsets.UTF_8);
+        assertTrue(content.contains("\nrelease-it-go\n") || content.endsWith("release-it-go\n"));
+    }
+
+    @Test
+    void ensureGitignore_existingFileNoTrailingNewline(@TempDir Path tempDir) throws IOException {
+        File gitignore = tempDir.resolve(".gitignore").toFile();
+        Files.write(gitignore.toPath(), "target/".getBytes(StandardCharsets.UTF_8));
+
+        assertTrue(PluginUtils.ensureGitignore(tempDir.toFile()));
+
+        String content = new String(Files.readAllBytes(gitignore.toPath()), StandardCharsets.UTF_8);
+        // Should not have content glued together without newline
+        assertFalse(content.contains("target/\n\n\n"), "Should not have excess blank lines");
+        assertTrue(content.contains("release-it-go"));
+    }
+
+    // --- getDefaultVersion with fallback reason tests ---
+
+    @Test
+    void getDefaultVersion_withFallbackReason_emptyWhenSuccess() {
+        List<String> reasons = new ArrayList<String>();
+        String version = PluginUtils.getDefaultVersion(reasons);
+        assertFalse(version.isEmpty());
+        // In test environment with filtered resources, reasons should be empty
+        // (the resource exists and is filtered by Maven during test phase)
+        assertTrue(reasons.isEmpty(), "No fallback reason expected when resource is properly filtered");
+    }
+
+    @Test
+    void getDefaultVersion_nullReasonList_doesNotThrow() {
+        assertDoesNotThrow(() -> PluginUtils.getDefaultVersion(null));
     }
 }

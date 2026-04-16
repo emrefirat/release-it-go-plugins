@@ -7,13 +7,10 @@ import org.apache.maven.plugins.annotations.LifecyclePhase;
 import org.apache.maven.plugins.annotations.Mojo;
 import org.apache.maven.plugins.annotations.Parameter;
 
-import java.io.BufferedReader;
 import java.io.File;
 import java.io.IOException;
-import java.io.InputStreamReader;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
-import java.nio.file.StandardOpenOption;
 import java.util.concurrent.TimeUnit;
 
 /**
@@ -77,15 +74,23 @@ public class InstallMojo extends AbstractMojo {
             return;
         }
 
-        // Resolve version: user-specified or build-time default
-        if (version == null || version.isEmpty()) {
-            version = PluginUtils.getDefaultVersion();
-            getLog().info("Using bundled default version: " + version);
+        // Resolve version: user-specified or build-time default (local var to avoid field mutation)
+        String resolvedVersion;
+        if (version != null && !version.isEmpty()) {
+            resolvedVersion = version;
+        } else {
+            java.util.List<String> fallbackReason = new java.util.ArrayList<String>();
+            resolvedVersion = PluginUtils.getDefaultVersion(fallbackReason);
+            if (!fallbackReason.isEmpty()) {
+                getLog().warn("Using fallback version " + resolvedVersion + ": " + fallbackReason.get(0));
+            } else {
+                getLog().info("Using bundled default version: " + resolvedVersion);
+            }
         }
 
         // Validate version format to prevent URL injection
         try {
-            PluginUtils.validateVersion(version);
+            PluginUtils.validateVersion(resolvedVersion);
         } catch (IllegalArgumentException e) {
             throw new MojoFailureException(e.getMessage());
         }
@@ -111,8 +116,8 @@ public class InstallMojo extends AbstractMojo {
             if (currentVersion == null) {
                 getLog().warn("Could not determine installed binary version, re-downloading to be safe");
                 needsDownload = true;
-            } else if (!PluginUtils.normalizeVersion(currentVersion).equals(PluginUtils.normalizeVersion(version))) {
-                getLog().info("Version mismatch: installed=" + currentVersion + ", required=" + version);
+            } else if (!PluginUtils.normalizeVersion(currentVersion).equals(PluginUtils.normalizeVersion(resolvedVersion))) {
+                getLog().info("Version mismatch: installed=" + currentVersion + ", required=" + resolvedVersion);
                 needsDownload = true;
             } else {
                 getLog().info("Binary up to date: " + binaryFile.getName());
@@ -120,10 +125,10 @@ public class InstallMojo extends AbstractMojo {
         }
 
         if (needsDownload) {
-            getLog().info("Downloading release-it-go v" + version + "...");
+            getLog().info("Downloading release-it-go v" + resolvedVersion + "...");
             try {
                 String resolvedToken = resolveToken();
-                BinaryDownloader downloader = new BinaryDownloader(getLog(), version, baseDir, resolvedToken, strictChecksum);
+                BinaryDownloader downloader = new BinaryDownloader(getLog(), resolvedVersion, baseDir, resolvedToken, strictChecksum);
                 binaryFile = downloader.download();
             } catch (IllegalStateException e) {
                 throw new MojoFailureException("Unsupported platform: " + e.getMessage(), e);
@@ -148,9 +153,15 @@ public class InstallMojo extends AbstractMojo {
         try {
             String postExecHash = BinaryDownloader.computeSHA256(binaryFile);
             if (!preExecHash.equals(postExecHash)) {
-                getLog().warn("SECURITY: Binary hash changed during execution! "
-                        + "Pre: " + preExecHash + ", Post: " + postExecHash);
+                String message = "SECURITY: Binary hash changed during execution! "
+                        + "Pre: " + preExecHash + ", Post: " + postExecHash;
+                if (strictChecksum) {
+                    throw new MojoExecutionException(message);
+                }
+                getLog().warn(message);
             }
+        } catch (MojoExecutionException e) {
+            throw e;
         } catch (IOException e) {
             getLog().debug("Could not verify post-execution binary hash: " + e.getMessage());
         }
@@ -161,25 +172,22 @@ public class InstallMojo extends AbstractMojo {
 
     /**
      * Executes the release-it-go binary with "hooks install" arguments.
-     * Captures and logs both stdout and stderr. Throws on non-zero exit code.
+     * Redirects output to a temp file to avoid blocking I/O before timeout.
+     * Throws on non-zero exit code or timeout.
      */
     private void runHooksInstall(File binary) throws MojoExecutionException {
-        ProcessBuilder pb = new ProcessBuilder(
-                binary.getAbsolutePath(), "hooks", "install"
-        );
-        pb.directory(baseDir);
-        pb.redirectErrorStream(true);
-
+        File outputFile = null;
         Process process = null;
         try {
-            process = pb.start();
+            outputFile = File.createTempFile("release-it-go-hooks-", ".log");
+            ProcessBuilder pb = new ProcessBuilder(
+                    binary.getAbsolutePath(), "hooks", "install"
+            );
+            pb.directory(baseDir);
+            pb.redirectErrorStream(true);
+            pb.redirectOutput(outputFile);
 
-            try (BufferedReader reader = new BufferedReader(new InputStreamReader(process.getInputStream(), StandardCharsets.UTF_8))) {
-                String line;
-                while ((line = reader.readLine()) != null) {
-                    getLog().info("[release-it-go] " + line);
-                }
-            }
+            process = pb.start();
 
             boolean finished = process.waitFor(HOOKS_INSTALL_TIMEOUT_SECONDS, TimeUnit.SECONDS);
             if (!finished) {
@@ -187,6 +195,11 @@ public class InstallMojo extends AbstractMojo {
                 throw new MojoExecutionException(
                         "release-it-go hooks install timed out after " + HOOKS_INSTALL_TIMEOUT_SECONDS + " seconds"
                 );
+            }
+
+            // Log output after process completes
+            for (String line : Files.readAllLines(outputFile.toPath(), StandardCharsets.UTF_8)) {
+                getLog().info("[release-it-go] " + line);
             }
 
             int exitCode = process.exitValue();
@@ -206,27 +219,39 @@ public class InstallMojo extends AbstractMojo {
             if (process != null) {
                 process.destroyForcibly();
             }
+            if (outputFile != null) {
+                outputFile.delete();
+            }
         }
     }
 
     /**
      * Gets the version of the installed binary by running "release-it-go version".
+     * Redirects output to a temp file to avoid blocking I/O before timeout.
      * Returns null if the binary cannot be executed.
      */
     private String getInstalledVersion(File binary) {
+        File outputFile = null;
         Process process = null;
         try {
+            outputFile = File.createTempFile("release-it-go-version-", ".log");
             ProcessBuilder pb = new ProcessBuilder(binary.getAbsolutePath(), "version");
             pb.redirectErrorStream(true);
+            pb.redirectOutput(outputFile);
+
             process = pb.start();
-            try (BufferedReader reader = new BufferedReader(new InputStreamReader(process.getInputStream(), StandardCharsets.UTF_8))) {
-                String line = reader.readLine();
-                if (!process.waitFor(VERSION_CHECK_TIMEOUT_SECONDS, TimeUnit.SECONDS)) {
-                    getLog().warn("Version check timed out after " + VERSION_CHECK_TIMEOUT_SECONDS + " seconds");
-                    return null;
-                }
-                return line;
+
+            if (!process.waitFor(VERSION_CHECK_TIMEOUT_SECONDS, TimeUnit.SECONDS)) {
+                process.destroyForcibly();
+                getLog().warn("Version check timed out after " + VERSION_CHECK_TIMEOUT_SECONDS + " seconds");
+                return null;
             }
+
+            java.util.List<String> lines = Files.readAllLines(outputFile.toPath(), StandardCharsets.UTF_8);
+            if (lines.isEmpty()) {
+                return null;
+            }
+            return lines.get(0);
         } catch (Exception e) {
             getLog().debug("Could not determine installed version: " + e.getMessage());
             return null;
@@ -234,33 +259,24 @@ public class InstallMojo extends AbstractMojo {
             if (process != null) {
                 process.destroyForcibly();
             }
+            if (outputFile != null) {
+                outputFile.delete();
+            }
         }
     }
 
     /**
-     * Ensures the binary name is listed in .gitignore.
+     * Ensures binary names are listed in .gitignore.
+     * Delegates to PluginUtils for testability.
      */
     private void ensureGitignore(File baseDir) {
-        String binaryName = PlatformDetector.binaryName();
-        File gitignore = new File(baseDir, ".gitignore");
-
         synchronized (InstallMojo.class) {
             try {
-                if (gitignore.exists()) {
-                    String content = new String(Files.readAllBytes(gitignore.toPath()), StandardCharsets.UTF_8);
-                    if (content.contains(binaryName)) {
-                        return; // Already in .gitignore
-                    }
-                    // Append to existing .gitignore
-                    Files.write(gitignore.toPath(),
-                            ("\n# release-it-go binary\n" + binaryName + "\n").getBytes(StandardCharsets.UTF_8),
-                            StandardOpenOption.APPEND);
+                if (PluginUtils.ensureGitignore(baseDir)) {
+                    getLog().info("Updated .gitignore with release-it-go binary entries");
                 } else {
-                    // Create .gitignore
-                    Files.write(gitignore.toPath(),
-                            ("# release-it-go binary\n" + binaryName + "\n").getBytes(StandardCharsets.UTF_8));
+                    getLog().debug("Binary entries already present in .gitignore");
                 }
-                getLog().info("Added " + binaryName + " to .gitignore");
             } catch (IOException e) {
                 getLog().warn("Could not update .gitignore: " + e.getMessage());
             }

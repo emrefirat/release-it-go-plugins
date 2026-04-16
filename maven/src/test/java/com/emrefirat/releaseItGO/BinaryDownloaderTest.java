@@ -16,6 +16,7 @@ import java.util.zip.ZipOutputStream;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
@@ -236,42 +237,78 @@ class BinaryDownloaderTest {
                 BinaryDownloader.maskUrl("https://example.com/file?"));
     }
 
-    // --- verifyChecksum tests ---
+    // --- verifyChecksum / parseExpectedHash tests ---
 
     @Test
-    void verifyChecksum_matchingHash_succeeds(@TempDir Path tempDir) throws IOException {
-        // Create a fake archive
-        File archive = tempDir.resolve("release-it-go_0.1.0_darwin_arm64.tar.gz").toFile();
-        Files.write(archive.toPath(), "archive-content".getBytes(StandardCharsets.UTF_8));
+    void parseExpectedHash_findsMatchingEntry() {
+        String content = "abc123def456  release-it-go_0.1.0_linux_amd64.tar.gz\n"
+                + "789xyz000111  release-it-go_0.1.0_darwin_arm64.tar.gz\n";
 
-        // Compute its real hash
-        String realHash = BinaryDownloader.computeSHA256(archive);
-
-        // Create checksums.txt with matching hash
-        File checksumsFile = tempDir.resolve("checksums.txt").toFile();
-        Files.write(checksumsFile.toPath(),
-                (realHash + "  release-it-go_0.1.0_darwin_arm64.tar.gz\n").getBytes(StandardCharsets.UTF_8));
-
-        // verifyChecksum downloads checksums.txt via downloadFile which needs HTTP.
-        // We test the parsing logic by writing checksums.txt directly and calling the method.
-        // Since verifyChecksum calls downloadFile internally, we test checksum parsing separately.
-        // Instead, we verify computeSHA256 and the format matching via a unit-level test.
-
-        // Verify the hash we computed matches what we'd put in the file
-        assertEquals(64, realHash.length());
-        assertTrue(realHash.matches("[0-9a-f]+"));
+        assertEquals("789xyz000111",
+                BinaryDownloader.parseExpectedHash(content, "release-it-go_0.1.0_darwin_arm64.tar.gz"));
     }
 
     @Test
-    void verifyChecksum_mismatchingHash_throwsIOException(@TempDir Path tempDir) throws IOException {
-        // Simulate the scenario where archive content doesn't match expected hash
-        File archive = tempDir.resolve("test-archive.tar.gz").toFile();
-        Files.write(archive.toPath(), "actual-content".getBytes(StandardCharsets.UTF_8));
+    void parseExpectedHash_returnsNullWhenNotFound() {
+        String content = "abc123  release-it-go_0.1.0_linux_amd64.tar.gz\n";
 
-        String actualHash = BinaryDownloader.computeSHA256(archive);
-        String fakeHash = "0000000000000000000000000000000000000000000000000000000000000000";
+        assertNull(BinaryDownloader.parseExpectedHash(content, "release-it-go_0.1.0_windows_amd64.zip"));
+    }
 
-        assertFalse(actualHash.equals(fakeHash), "Hashes should not match");
+    @Test
+    void parseExpectedHash_handlesEmptyLines() {
+        String content = "\n\nabc123  release-it-go_0.1.0_darwin_arm64.tar.gz\n\n";
+
+        assertEquals("abc123",
+                BinaryDownloader.parseExpectedHash(content, "release-it-go_0.1.0_darwin_arm64.tar.gz"));
+    }
+
+    @Test
+    void parseExpectedHash_lowercasesHash() {
+        String content = "ABC123DEF456  release-it-go_0.1.0_darwin_arm64.tar.gz\n";
+
+        assertEquals("abc123def456",
+                BinaryDownloader.parseExpectedHash(content, "release-it-go_0.1.0_darwin_arm64.tar.gz"));
+    }
+
+    @Test
+    void parseExpectedHash_handlesTwoSpaceSeparator() {
+        String content = "abc123  release-it-go_0.1.0_darwin_arm64.tar.gz\n";
+
+        assertEquals("abc123",
+                BinaryDownloader.parseExpectedHash(content, "release-it-go_0.1.0_darwin_arm64.tar.gz"));
+    }
+
+    @Test
+    void parseExpectedHash_handlesTabSeparator() {
+        String content = "abc123\trelease-it-go_0.1.0_darwin_arm64.tar.gz\n";
+
+        assertEquals("abc123",
+                BinaryDownloader.parseExpectedHash(content, "release-it-go_0.1.0_darwin_arm64.tar.gz"));
+    }
+
+    @Test
+    void parseExpectedHash_nullContent_returnsNull() {
+        assertNull(BinaryDownloader.parseExpectedHash(null, "file.tar.gz"));
+    }
+
+    @Test
+    void parseExpectedHash_nullArchiveName_returnsNull() {
+        assertNull(BinaryDownloader.parseExpectedHash("abc123  file.tar.gz", null));
+    }
+
+    @Test
+    void parseExpectedHash_windowsLineEndings() {
+        String content = "abc123  file1.tar.gz\r\ndef456  file2.zip\r\n";
+
+        assertEquals("def456", BinaryDownloader.parseExpectedHash(content, "file2.zip"));
+    }
+
+    @Test
+    void parseExpectedHash_doesNotPartialMatch() {
+        String content = "abc123  release-it-go_0.1.0_darwin_arm64.tar.gz.sig\n";
+
+        assertNull(BinaryDownloader.parseExpectedHash(content, "release-it-go_0.1.0_darwin_arm64.tar.gz"));
     }
 
     // --- Helper methods ---
