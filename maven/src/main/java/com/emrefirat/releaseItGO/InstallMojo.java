@@ -22,7 +22,7 @@ import java.util.concurrent.TimeUnit;
  * <plugin>
  *     <groupId>com.emrefirat</groupId>
  *     <artifactId>release-it-go-maven-plugin</artifactId>
- *     <version>1.2.1</version>
+ *     <version>1.2.2</version>
  *     <configuration>
  *         <version>0.1.0</version>
  *     </configuration>
@@ -203,9 +203,12 @@ public class InstallMojo extends AbstractMojo {
                 );
             }
 
-            // Log output after process completes
+            // Log output after process completes (sanitize for legacy consoles)
             for (String line : Files.readAllLines(outputFile.toPath(), StandardCharsets.UTF_8)) {
-                getLog().info("[release-it-go] " + line);
+                String sanitized = PluginUtils.sanitizeForConsole(line);
+                if (!sanitized.isEmpty()) {
+                    getLog().info("[release-it-go] " + sanitized);
+                }
             }
 
             int exitCode = process.exitValue();

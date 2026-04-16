@@ -363,4 +363,84 @@ class PluginUtilsTest {
         // Reads actual env var; just verify it doesn't throw
         assertDoesNotThrow(() -> PluginUtils.isCiEnvironment());
     }
+
+    // --- sanitizeForConsole tests ---
+
+    @Test
+    void sanitizeForConsole_checkMark_replacedWithOK() {
+        assertEquals("[OK] Installed commit-msg",
+                PluginUtils.sanitizeForConsole("\u2713 Installed commit-msg"));
+    }
+
+    @Test
+    void sanitizeForConsole_heavyCheckMark_replacedWithOK() {
+        assertEquals("[OK] done",
+                PluginUtils.sanitizeForConsole("\u2714 done"));
+    }
+
+    @Test
+    void sanitizeForConsole_ballotX_replacedWithFail() {
+        assertEquals("[FAIL] error",
+                PluginUtils.sanitizeForConsole("\u2717 error"));
+    }
+
+    @Test
+    void sanitizeForConsole_arrow_replacedWithAscii() {
+        assertEquals("foo -> bar",
+                PluginUtils.sanitizeForConsole("foo \u2192 bar"));
+    }
+
+    @Test
+    void sanitizeForConsole_warning_replacedWithWarn() {
+        assertEquals("[WARN] deprecated",
+                PluginUtils.sanitizeForConsole("\u26A0 deprecated"));
+    }
+
+    @Test
+    void sanitizeForConsole_plainAscii_unchanged() {
+        assertEquals("Installing git hooks...",
+                PluginUtils.sanitizeForConsole("Installing git hooks..."));
+    }
+
+    @Test
+    void sanitizeForConsole_nullInput_returnsNull() {
+        assertEquals(null, PluginUtils.sanitizeForConsole(null));
+    }
+
+    @Test
+    void sanitizeForConsole_emptyString_returnsEmpty() {
+        assertEquals("", PluginUtils.sanitizeForConsole(""));
+    }
+
+    @Test
+    void sanitizeForConsole_unknownUnicode_stripped() {
+        // Unknown Unicode chars (not in our mapping) should be stripped
+        assertEquals("Installed",
+                PluginUtils.sanitizeForConsole("\u2605 Installed"));  // star
+    }
+
+    @Test
+    void sanitizeForConsole_multipleGlyphs() {
+        assertEquals("[OK] done [FAIL] skipped",
+                PluginUtils.sanitizeForConsole("\u2713 done \u2717 skipped"));
+    }
+
+    // --- ensureGitignore duplicate header tests ---
+
+    @Test
+    void ensureGitignore_existingHeader_noDuplicateHeader(@TempDir Path tempDir) throws IOException {
+        File gitignore = tempDir.resolve(".gitignore").toFile();
+        // Simulate first run added some entries with header
+        Files.write(gitignore.toPath(),
+                "target/\n# release-it-go binary\nrelease-it-go\n.hooks/\n".getBytes(StandardCharsets.UTF_8));
+
+        assertTrue(PluginUtils.ensureGitignore(tempDir.toFile()));
+
+        String content = new String(Files.readAllBytes(gitignore.toPath()), StandardCharsets.UTF_8);
+        // Header should appear only once
+        int headerCount = content.split("# release-it-go binary", -1).length - 1;
+        assertEquals(1, headerCount, "Header should not be duplicated");
+        // Missing entry should still be added
+        assertTrue(content.contains("release-it-go.exe"));
+    }
 }

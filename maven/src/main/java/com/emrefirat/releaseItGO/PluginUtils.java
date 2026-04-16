@@ -21,6 +21,8 @@ final class PluginUtils {
     private static final String DEFAULTS_RESOURCE = "release-it-go-defaults.properties";
     private static final String FALLBACK_VERSION = "0.2.0";
 
+    private static final String GITIGNORE_HEADER = "# release-it-go binary";
+
     private static final String[] GITIGNORE_ENTRIES = {
             "release-it-go",
             "release-it-go.exe",
@@ -34,6 +36,28 @@ final class PluginUtils {
 
     private PluginUtils() {
         // utility class
+    }
+
+    /**
+     * Sanitizes a string for display on consoles that may not support UTF-8
+     * (e.g., Windows cmd.exe with legacy code pages). Replaces common CLI
+     * Unicode glyphs with ASCII equivalents and strips remaining non-printable
+     * or non-ASCII characters so lines like "? Installed" become "[OK] Installed".
+     */
+    static String sanitizeForConsole(String line) {
+        if (line == null) {
+            return null;
+        }
+        String result = line
+                .replace("\u2713", "[OK]")      // ✓ check mark
+                .replace("\u2714", "[OK]")      // ✔ heavy check mark
+                .replace("\u2717", "[FAIL]")    // ✗ ballot x
+                .replace("\u2718", "[FAIL]")    // ✘ heavy ballot x
+                .replace("\u2192", "->")        // → arrow
+                .replace("\u26A0", "[WARN]")    // ⚠ warning
+                .replace("\u2139", "[INFO]");   // ℹ info
+        // Strip any remaining non-ASCII characters that would render as ? on legacy consoles
+        return result.replaceAll("[^\\x20-\\x7E\\t]", "").trim();
     }
 
     /**
@@ -180,7 +204,14 @@ final class PluginUtils {
                 block.append("\n");
             }
         }
-        block.append("\n# release-it-go binary\n");
+        // Only add the header if it's not already in the file (prevents duplicate headers
+        // when entries are added in separate runs, e.g., different platforms)
+        boolean headerExists = existingContent.contains(GITIGNORE_HEADER);
+        if (!headerExists) {
+            block.append("\n").append(GITIGNORE_HEADER).append("\n");
+        } else {
+            block.append("\n");
+        }
         for (String entry : missing) {
             block.append(entry).append("\n");
         }

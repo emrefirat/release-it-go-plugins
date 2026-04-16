@@ -140,7 +140,7 @@ https://github.com/emrefirat/release-it-GO/releases/download/v{version}/checksum
 <plugin>
     <groupId>com.emrefirat</groupId>
     <artifactId>release-it-go-maven-plugin</artifactId>
-    <version>1.2.1</version>
+    <version>1.2.2</version>
     <executions>
         <execution>
             <goals><goal>install</goal></goals>
